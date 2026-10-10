@@ -8,7 +8,7 @@ import {
   canReadChannel,
   canViewChannel,
   buildActivityEmbed,
-} from '../src/activity-history.js';
+} from '../src/activity/activity-history.js';
 
 const permissions = new PermissionsBitField([
   PermissionsBitField.Flags.ViewChannel,

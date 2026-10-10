@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { ChannelType, PermissionFlagsBits } from 'discord.js';
-import { handleMemberJoin } from '../src/member-join.js';
+import { handleMemberJoin } from '../src/welcome/member-join.js';
 
 const guildId = '234567890123456789';
 const channelId = '123456789012345678';

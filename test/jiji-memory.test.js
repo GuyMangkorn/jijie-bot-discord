@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { openJijiMemory } from '../src/jiji-memory.js';
+import { openJijiMemory } from '../src/jiji/jiji-memory.js';
 const guildId = '234567890123456789', channelId = '123456789012345678', userId = '345678901234567890', otherId = '456789012345678901';
 const scope = { channelId, userId }, pair = { user: 'เราเป็นบอล', assistant: 'หวัดดีบอล 😊' };
 async function temporary(fn) {

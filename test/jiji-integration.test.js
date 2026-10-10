@@ -4,11 +4,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { ChannelType, Events, GatewayIntentBits, PermissionFlagsBits as P } from 'discord.js';
-import { createJijiRuntime } from '../src/jiji-runtime.js';
+import { createJijiRuntime } from '../src/jiji/jiji-runtime.js';
 import { registerMessageHandlers, botIntents } from '../src/index.js';
 import { registerCommands } from '../scripts/register-commands.js';
-import { handleLatestMembers } from '../src/command.js';
-import { JIJI_TIRED_MESSAGE } from '../src/gemini-client.js';
+import { registerInteractionDispatcher } from '../src/commands/interaction-dispatch.js';
+import { JIJI_TIRED_MESSAGE } from '../src/jiji/gemini-client.js';
 
 const guildId = '123456789012345678', channelId = '223456789012345678';
 const userId = '323456789012345678', botId = '423456789012345678', otherChannel = '523456789012345678';
@@ -93,9 +93,15 @@ test('missing Gemini key leaves latest command operational and prevents enable',
   const f = await fixture(t), runtime = await f.open({ geminiApiKey: undefined });
   await runtime.handleInteraction(f.interaction('เพิ่ม')); await runtime.handleInteraction(f.interaction('เปิด'));
   assert.equal((await json(f.settingsPath)).enabled, false); assert.match(f.replies.at(-1).content, /GEMINI_API_KEY/);
+  registerInteractionDispatcher(f.client, {
+    activityLog: { async record() {} }, departureLog: {}, guildId,
+    welcomeSettings: {}, jijiRuntime: runtime,
+  });
   const latest = f.interaction(undefined, 'ล่าสุด');
-  await Promise.all([handleLatestMembers(latest), runtime.handleInteraction(latest)]);
+  await f.callbacks.get(Events.InteractionCreate)(latest);
   assert.equal(f.replies.at(-1).embeds.length, 1);
+  await f.callbacks.get(Events.InteractionCreate)(f.interaction('ปิด'));
+  assert.match(f.replies.at(-1).content, /ปิด/);
 });
 
 test('corrupt settings and memory fail startup without overwriting either file', async t => {

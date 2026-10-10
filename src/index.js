@@ -1,16 +1,14 @@
 import { Client, Events, GatewayIntentBits } from 'discord.js';
-import { handleLatestMembers } from './command.js';
 import { readConfig } from './config.js';
-import { openDepartureLog } from './departure-log.js';
-import { handleDepartures } from './departure-command.js';
-import { activityFromMember, activityFromMessage, activityFromVoiceState } from './activity-events.js';
-import { openActivityLog } from './activity-log.js';
-import { handleActivity } from './activity-command.js';
-import { openWelcomeSettings } from './welcome-settings.js';
-import { registerWelcomeHandlers } from './member-join.js';
+import { openDepartureLog } from './departures/departure-log.js';
+import { activityFromMember, activityFromMessage, activityFromVoiceState } from './activity/activity-events.js';
+import { openActivityLog } from './activity/activity-log.js';
+import { openWelcomeSettings } from './welcome/welcome-settings.js';
+import { registerMemberJoinHandler } from './welcome/member-join.js';
+import { registerInteractionDispatcher } from './commands/interaction-dispatch.js';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
-import { createJijiRuntime } from './jiji-runtime.js';
+import { createJijiRuntime } from './jiji/jiji-runtime.js';
 
 export const botIntents = [
   GatewayIntentBits.Guilds,
@@ -61,18 +59,11 @@ export async function startBot() {
     console.log(`บอตออนไลน์แล้ว: ${readyClient.user.tag}`);
   });
 
-  client.on(Events.InteractionCreate, (interaction) => {
-    void Promise.all([
-      handleLatestMembers(interaction),
-      handleDepartures(interaction, departureLog, guildId),
-      handleActivity(interaction, { activityLog, guildId }),
-      jijiRuntime.handleInteraction(interaction),
-    ]).catch((error) => {
-      console.error('จัดการคำสั่งไม่สำเร็จ', error?.name ?? 'Error', error?.code ?? '');
-    });
+  registerInteractionDispatcher(client, {
+    activityLog, departureLog, guildId, welcomeSettings, jijiRuntime,
   });
 
-  registerWelcomeHandlers(client, { settings: welcomeSettings, activityLog, guildId });
+  registerMemberJoinHandler(client, { settings: welcomeSettings, activityLog, guildId });
 
   client.on(Events.GuildMemberRemove, (member) => {
     void departureLog.record(member).catch((error) => {

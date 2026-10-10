@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { openDepartureLog, buildDeparturesEmbed } from '../src/departure-log.js';
-import { handleDepartures } from '../src/departure-command.js';
+import { openDepartureLog, buildDeparturesEmbed } from '../src/departures/departure-log.js';
+import { handleDepartures } from '../src/departures/departure-command.js';
 
 async function temporary(t) {
   const dir = await mkdtemp(join(tmpdir(), 'departures-'));

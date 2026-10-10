@@ -4,8 +4,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { ChannelType, Events, PermissionFlagsBits } from 'discord.js';
-import { openWelcomeSettings } from '../src/welcome-settings.js';
-import { registerWelcomeHandlers } from '../src/member-join.js';
+import { openWelcomeSettings } from '../src/welcome/welcome-settings.js';
+import { registerMemberJoinHandler } from '../src/welcome/member-join.js';
+import { registerInteractionDispatcher } from '../src/commands/interaction-dispatch.js';
 
 const guildId = '234567890123456789';
 const channelId = '123456789012345678';
@@ -40,7 +41,11 @@ test('manager setup persists and the join event records activity and sends a wel
     };
     const client = { on(event, callback) { callbacks.set(event, callback); } };
     const activityLog = { async record(event) { records.push(event); } };
-    registerWelcomeHandlers(client, { settings, activityLog, guildId });
+    registerMemberJoinHandler(client, { settings, activityLog, guildId });
+    registerInteractionDispatcher(client, {
+      activityLog, departureLog: {}, guildId, welcomeSettings: settings,
+      jijiRuntime: { async handleInteraction() {} },
+    });
 
     const interactionReplies = [];
     const setup = {

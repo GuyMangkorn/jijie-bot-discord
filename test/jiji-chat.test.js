@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ChannelType, PermissionFlagsBits as P } from 'discord.js';
-import { createJijiChat } from '../src/jiji-chat.js';
+import { createJijiChat } from '../src/jiji/jiji-chat.js';
 const guildId = '123456789012345678', channelId = '223456789012345678', otherChannel = '323456789012345678';
 const userId = '423456789012345678', botId = '523456789012345678';
 const tired = 'จีจี้เหนื่อยแล้ว 😴 รอก่อนแล้วค่อยมาคุยกันใหม่นะ';

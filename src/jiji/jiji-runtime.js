@@ -8,8 +8,8 @@ import { handleJijiCommand } from './jiji-command.js';
 export async function createJijiRuntime({
   client, guildId, geminiApiKey, geminiModel,
   departureLog,
-  settingsPath = fileURLToPath(new URL('../data/jiji-settings.json', import.meta.url)),
-  memoryPath = fileURLToPath(new URL('../data/jiji-memory.json', import.meta.url)),
+  settingsPath = fileURLToPath(new URL('../../data/jiji-settings.json', import.meta.url)),
+  memoryPath = fileURLToPath(new URL('../../data/jiji-memory.json', import.meta.url)),
   fetchImpl, now = Date.now,
 }) {
   const settings = await openJijiSettings(settingsPath, guildId);

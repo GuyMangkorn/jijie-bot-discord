@@ -1,10 +1,10 @@
 import { REST, Routes } from 'discord.js';
-import { commandData } from '../src/command.js';
-import { departureCommandData } from '../src/departure-command.js';
-import { activityCommandData } from '../src/activity-command.js';
-import { welcomeCommandData } from '../src/welcome-command.js';
+import { commandData } from '../src/members/latest-members-command.js';
+import { departureCommandData } from '../src/departures/departure-command.js';
+import { activityCommandData } from '../src/activity/activity-command.js';
+import { welcomeCommandData } from '../src/welcome/welcome-command.js';
 import { readConfig } from '../src/config.js';
-import { jijiCommandData, forgetCommandData } from '../src/jiji-command.js';
+import { jijiCommandData, forgetCommandData } from '../src/jiji/jiji-command.js';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 

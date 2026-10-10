@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rename as fsRename, rm, writeFile as fsWriteFile } f
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { openWelcomeSettings } from '../src/welcome-settings.js';
+import { openWelcomeSettings } from '../src/welcome/welcome-settings.js';
 
 const guildId = '234567890123456789';
 const channelId = '123456789012345678';

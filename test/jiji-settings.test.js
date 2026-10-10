@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { openJijiSettings } from '../src/jiji-settings.js';
+import { openJijiSettings } from '../src/jiji/jiji-settings.js';
 const guildId = '234567890123456789', channelId = '123456789012345678', otherId = '345678901234567890';
 async function temporary(fn) {
   const directory = await mkdtemp(join(tmpdir(), 'jiji-settings-'));

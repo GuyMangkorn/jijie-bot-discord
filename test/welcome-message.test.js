@@ -6,7 +6,7 @@ import {
   buildWelcomeMessage,
   sendWelcome,
   validateWelcomeTemplate,
-} from '../src/welcome-message.js';
+} from '../src/welcome/welcome-message.js';
 
 const guildId = '234567890123456789';
 const channelId = '123456789012345678';

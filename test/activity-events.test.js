@@ -4,7 +4,7 @@ import {
   activityFromMember,
   activityFromMessage,
   activityFromVoiceState,
-} from '../src/activity-events.js';
+} from '../src/activity/activity-events.js';
 
 const member = (userId = 'user', bot = false, guildId = 'guild') => ({
   id: userId, guild: { id: guildId }, user: { id: userId, bot },

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { fetchLatestMembers } from '../src/member-service.js';
-import { handleLatestMembers } from '../src/command.js';
+import { fetchLatestMembers } from '../src/members/member-service.js';
+import { handleLatestMembers } from '../src/members/latest-members-command.js';
 
 const member = (id, joinedTimestamp, extra = {}) => ({
   id, joinedTimestamp, displayName: `name-${id}`, user: { bot: false }, ...extra,

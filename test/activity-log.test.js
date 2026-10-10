@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { openActivityLog } from '../src/activity-log.js';
+import { openActivityLog } from '../src/activity/activity-log.js';
 
 async function temporary(t) {
   const dir = await mkdtemp(join(tmpdir(), 'activity-log-'));

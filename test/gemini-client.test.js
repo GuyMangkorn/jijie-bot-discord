@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createGeminiClient, JIJI_TIRED_MESSAGE } from '../src/gemini-client.js';
-import { jijiToolDeclarations } from '../src/jiji-tools.js';
+import { createGeminiClient, JIJI_TIRED_MESSAGE } from '../src/jiji/gemini-client.js';
+import { jijiToolDeclarations } from '../src/jiji/jiji-tools.js';
 const reply = (parts, extra = {}) => ({ candidates: [{ content: { role: 'model', parts }, finishReason: 'STOP', ...extra }] });
 const jsonResponse = (data) => ({ ok: true, json: async () => data });
 const call = (name = 'activity_help') => ({ functionCall: { name, args: {} }, thoughtSignature: 'signature' });

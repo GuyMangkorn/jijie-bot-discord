@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getJijiPrompt } from '../src/jiji-trigger.js';
+import { getJijiPrompt } from '../src/jiji/jiji-trigger.js';
 const botId = '523456789012345678';
 const message = content => ({ content });
 

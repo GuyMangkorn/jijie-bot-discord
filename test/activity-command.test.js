@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Collection, ChannelType, MessageFlags, PermissionsBitField } from 'discord.js';
-import { activityCommandData, collectActivity, createActivityQueryLimiter, handleActivity } from '../src/activity-command.js';
+import { activityCommandData, collectActivity, createActivityQueryLimiter, handleActivity } from '../src/activity/activity-command.js';
 
 function interaction(overrides = {}) {
   const calls = [];

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { ChannelType, MessageFlags, PermissionFlagsBits } from 'discord.js';
-import { welcomeCommandData, handleWelcome } from '../src/welcome-command.js';
+import { welcomeCommandData, handleWelcome } from '../src/welcome/welcome-command.js';
 
 const guildId = '234567890123456789';
 const channelId = '123456789012345678';

@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { ChannelType, MessageFlags, PermissionFlagsBits as P } from 'discord.js';
-import { jijiCommandData, forgetCommandData, handleJijiCommand } from '../src/jiji-command.js';
-import { refreshJijiAccess } from '../src/jiji-access.js';
+import { jijiCommandData, forgetCommandData, handleJijiCommand } from '../src/jiji/jiji-command.js';
+import { refreshJijiAccess } from '../src/jiji/jiji-access.js';
 const guildId = '123456789012345678', channelId = '223456789012345678', otherId = '323456789012345678', userId = '423456789012345678';
 const storageError = 'บันทึกการตั้งค่าหรือความจำไม่สำเร็จ กรุณาให้ผู้ดูแลตรวจพื้นที่จัดเก็บของบอต';
 function fixture({ commandName = 'จีจี้', subcommand = 'เพิ่ม', manager = true, visible = true, send = true, enabled = false, channelIds = [], fail, missing = false, key = true } = {}) {

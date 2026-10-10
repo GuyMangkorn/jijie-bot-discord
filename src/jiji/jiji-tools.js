@@ -1,4 +1,4 @@
-import { fetchLatestMembers } from './member-service.js';
+import { fetchLatestMembers } from '../members/member-service.js';
 
 export const jijiToolDeclarations = [
   { name: 'get_latest_members', description: 'สมาชิกปัจจุบันที่เป็นคนและเข้าร่วมล่าสุด สูงสุด 10 คน' },

@@ -1,4 +1,4 @@
-import { validateGeminiModel } from './config.js';
+import { validateGeminiModel } from '../config.js';
 import { jijiToolDeclarations } from './jiji-tools.js';
 
 export const JIJI_TIRED_MESSAGE = 'จีจี้เหนื่อยแล้ว 😴 รอก่อนแล้วค่อยมาคุยกันใหม่นะ';

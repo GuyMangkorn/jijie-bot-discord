@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createJijiTools, jijiToolDeclarations } from '../src/jiji-tools.js';
+import { createJijiTools, jijiToolDeclarations } from '../src/jiji/jiji-tools.js';
 
 function fixture(overrides = {}) {
   const reads = [];
