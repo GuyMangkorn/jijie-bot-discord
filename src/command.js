@@ -1,5 +1,6 @@
 import { EmbedBuilder, MessageFlags } from 'discord.js';
-import { buildMembersEmbed, selectLatestMembers } from './latest-members.js';
+import { buildMembersEmbed } from './latest-members.js';
+import { fetchLatestMembers } from './member-service.js';
 
 export const commandData = {
   name: 'ล่าสุด',
@@ -23,7 +24,7 @@ export async function handleLatestMembers(interaction) {
 
   let members;
   try {
-    members = await interaction.guild.members.fetch();
+    members = await fetchLatestMembers(interaction.guild);
   } catch (error) {
     console.error('ดึงข้อมูลสมาชิกไม่สำเร็จ', error?.name ?? 'Error', error?.code ?? '');
     await interaction.editReply({
@@ -33,7 +34,7 @@ export async function handleLatestMembers(interaction) {
     return;
   }
 
-  const selectedMembers = selectLatestMembers(members.values());
+  const selectedMembers = members.map((member) => ({ id: member.userId, joinedTimestamp: member.joinedAt }));
   const embedContent = buildMembersEmbed(selectedMembers);
   const embed = new EmbedBuilder()
     .setTitle(embedContent.title)
