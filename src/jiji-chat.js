@@ -56,11 +56,14 @@ export function createJijiChat({ guildId, botId, settings, memory, gemini, depar
     if (prompt === null && !reference?.messageId) return;
 
     const scope = { channelId: message.channelId, userId: message.author.id };
+    const at = now();
+    const deadlineAt = at + 30_000;
     const controller = new AbortController();
     const provider = new AbortController();
     const turn = { scope, controller, invalidated: false, finished: false };
     pending.add(turn);
-    const isCurrent = () => !turn.invalidated && !turn.finished && !controller.signal.aborted;
+    const isCurrent = () => !turn.invalidated && !turn.finished && !controller.signal.aborted
+      && now() < deadlineAt;
     const assertCurrent = () => { if (!isCurrent()) throw localError('cancelled'); };
     const abortProvider = () => provider.abort();
     controller.signal.addEventListener('abort', abortProvider, { once: true });
@@ -68,7 +71,6 @@ export function createJijiChat({ guildId, botId, settings, memory, gemini, depar
     // for freshly authorized failure delivery; the overall deadline never moves.
     const deadline = setTimeout(() => controller.abort(), 30_000);
     const providerDeadline = setTimeout(abortProvider, 29_000);
-    const at = now();
     const wasBusy = active.has(scope.userId) || at - (starts.get(scope.userId) ?? -Infinity) < 5_000;
     if (!wasBusy) {
       active.set(scope.userId, turn);

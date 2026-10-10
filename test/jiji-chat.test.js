@@ -211,3 +211,28 @@ test('different users are independent and forgetting an unrelated scope does not
   assert.equal(f.replies[0].content, 'second answer'); pending.resolve({ text: 'first answer', usedTools: false }); await first;
   assert.equal(f.replies[1].content, 'first answer');
 });
+
+test('elapsed deadline blocks late provider answers/errors before delayed timers and releases lock', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  for (const elapsed of [30000, 30001]) for (const fails of [false, true]) {
+    const f = fixture(), pending = deferred(); let signal;
+    f.gemini.respond = async options => { signal = options.signal; return pending.promise; };
+    const turn = f.chat.handleMessage(f.message()); await waitFor(() => signal);
+    f.setTime(10000 + elapsed);
+    assert.equal(signal.aborted, false, 'Timer callbacks have deliberately not fired');
+    if (fails) pending.reject(new Error('late provider failure'));
+    else pending.resolve({ text: 'late answer', usedTools: false });
+    await turn; assert.deepEqual(f.replies, []); assert.deepEqual(f.saves, []);
+    f.gemini.respond = async () => ({ text: 'new answer', usedTools: false });
+    await f.chat.handleMessage(f.message());
+    assert.equal(f.replies[0].content, 'new answer'); assert.equal(f.saves.length, 1);
+  }
+});
+test('serialized append guard rejects elapsed deadline even before delayed timers fire', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] }); const f = fixture(); let guarded;
+  f.memory.append = async (_scope, _pair, { isCurrent }) => {
+    f.setTime(40001); guarded = isCurrent(); return guarded;
+  };
+  await f.chat.handleMessage(f.message());
+  assert.equal(f.replies.length, 1); assert.equal(guarded, false); assert.deepEqual(f.saves, []);
+});
