@@ -32,7 +32,7 @@ async function fixture(t) {
   function message(content = 'จีจี้สวัสดี', extra = {}) { return { id: '623456789012345678', content, guild, guildId, channel, channelId,
     createdTimestamp: at, author: { id: userId, bot: false }, async reply(payload) { replies.push(payload); }, ...extra }; }
   function interaction(subcommand, commandName = 'จีจี้') { return { commandName, guild, channelId, user: { id: userId },
-    isChatInputCommand: () => true, options: { getSubcommand: () => subcommand, getChannel: () => channel },
+    isChatInputCommand: () => true, options: { getSubcommand: () => subcommand, getChannel: () => channel, getString: () => null },
     async deferReply() {}, async editReply(payload) { replies.push(payload); } }; }
   async function enable(runtime) { await runtime.handleInteraction(interaction('เพิ่ม')); await runtime.handleInteraction(interaction('เปิด')); }
   return { open, enable, message, interaction, replies, requests, client, callbacks, settingsPath, memoryPath,
@@ -137,15 +137,20 @@ test('runtime opens before login and resolves the authenticated bot ID for menti
   assert.equal(f.requests[0].contents.at(-1).parts[0].text, 'hello');
 });
 
-test('forget and disable commands abort pending runtime turns and persist erasure', async t => {
-  for (const command of ['ลืม', 'ปิด']) {
+test('forget, disable and raw-ID room removal abort pending runtime turns and persist erasure', async t => {
+  for (const command of ['ลืม', 'ปิด', 'ลบ']) {
     const f = await fixture(t), runtime = await f.open(); await f.enable(runtime);
     await runtime.handleMessage(f.message()); f.advance();
     let signal, entered; const started = new Promise(resolve => { entered = resolve; });
     f.setFetch(options => { signal = options.signal; entered(); return new Promise(() => {}); });
     const pending = runtime.handleMessage(f.message('จีจี้pending')); await started;
     const before = f.replies.length;
-    await runtime.handleInteraction(f.interaction(command === 'ปิด' ? command : undefined, command === 'ลืม' ? command : 'จีจี้'));
+    const interaction = f.interaction(command === 'ลืม' ? undefined : command, command === 'ลืม' ? command : 'จีจี้');
+    if (command === 'ลบ') {
+      interaction.options.getChannel = () => null;
+      interaction.options.getString = () => channelId;
+    }
+    await runtime.handleInteraction(interaction);
     await pending; assert.equal(signal.aborted, true);
     assert.equal(f.replies.length, before + 1, 'only the ephemeral command reply was delivered');
     assert.deepEqual((await json(f.memoryPath)).sessions, []);

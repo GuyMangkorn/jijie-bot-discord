@@ -21,7 +21,7 @@ function fixture({ commandName = 'จีจี้', subcommand = 'เพิ่�
     setEnabled: value => mutate('enabled', value, () => { config.enabled = value; }) };
   const memory = { clear: scope => mutate('clear', scope), clearChannel: id => mutate('clearChannel', id), clearAll: () => mutate('clearAll') };
   const interaction = { commandName, guild, channelId, user: { id: userId }, memberPermissions: { has: () => true }, isChatInputCommand: () => true,
-    options: { getSubcommand: () => subcommand, getChannel: name => { assert.equal(name, 'ห้อง'); return channel(channelId); } },
+    options: { getSubcommand: () => subcommand, getChannel: name => { assert.equal(name, 'ห้อง'); return channel(channelId); }, getString: name => { assert.equal(name, 'รหัสห้อง'); return null; } },
     async deferReply(payload) { calls.push(['defer', payload]); }, async editReply(payload) { replies.push(payload); } };
   const options = { guildId, settings, memory, hasApiKey: key, invalidate: scope => calls.push(['invalidate', scope]) };
   return { interaction, options, calls, replies, config: () => config };
@@ -31,7 +31,10 @@ test('exact command names/options/default ManageGuild; forget unrestricted', () 
   assert.equal(jijiCommandData.name, 'จีจี้'); assert.equal(jijiCommandData.type, 1); assert.equal(jijiCommandData.default_member_permissions, String(P.ManageGuild));
   assert.deepEqual(jijiCommandData.options.map(x => x.name), ['เพิ่ม', 'ลบ', 'ดู', 'เปิด', 'ปิด']);
   for (const option of jijiCommandData.options) assert.equal(option.type, 1);
-  for (const option of jijiCommandData.options.slice(0, 2)) assert.deepEqual(option.options.map(x => [x.name, x.type, x.required, x.channel_types]), [['ห้อง', 7, true, [ChannelType.GuildText]]]);
+  assert.deepEqual(jijiCommandData.options[0].options.map(x => [x.name, x.type, x.required, x.channel_types]), [['ห้อง', 7, true, [ChannelType.GuildText]]]);
+  assert.deepEqual(jijiCommandData.options[1].options.map(x => [x.name, x.type, x.required, x.channel_types]), [['ห้อง', 7, false, [ChannelType.GuildText]], ['รหัสห้อง', 3, false, undefined]]);
+  assert.equal(jijiCommandData.options[1].options[1].min_length, 17);
+  assert.equal(jijiCommandData.options[1].options[1].max_length, 20);
   for (const option of jijiCommandData.options.slice(2)) assert.equal(option.options?.length ?? 0, 0);
   assert.equal(forgetCommandData.name, 'ลืม'); assert.equal(forgetCommandData.type, 1); assert.equal(forgetCommandData.default_member_permissions, undefined); assert.equal(forgetCommandData.options?.length ?? 0, 0);
 });
@@ -91,4 +94,84 @@ test('view is bounded within Discord reply limit for many visible rooms', async 
   const f = fixture({ subcommand: 'ดู', channelIds: Array.from({ length: 100 }, (_, i) => String(623456789012345678n + BigInt(i))) });
   f.interaction.guild.channels.fetch = async id => ({ id, guildId, type: ChannelType.GuildText, name: 'a'.repeat(100), permissionsFor: () => ({ has: () => true }) });
   await handleJijiCommand(f.interaction, f.options); assert.ok(f.replies[0].content.length <= 2000); assert.match(f.replies[0].content, /อีก/);
+});
+
+
+test('view and enable skip known unavailable channel fetches while retaining another accessible room', async () => {
+  for (const code of [10003, 50001, 50013]) for (const subcommand of ['ดู', 'เปิด']) {
+    const f = fixture({ subcommand, channelIds: [otherId, channelId] });
+    const fetch = f.interaction.guild.channels.fetch;
+    f.interaction.guild.channels.fetch = async (...args) => {
+      if (args[0] === otherId) throw Object.assign(new Error('unavailable channel'), { rawError: { code } });
+      return fetch(...args);
+    };
+    await handleJijiCommand(f.interaction, f.options);
+    if (subcommand === 'เปิด') assert.equal(f.config().enabled, true);
+    else {
+      assert.match(f.replies[0].content, /#chat/);
+      assert.match(f.replies[0].content, /ห้องที่ซ่อนหรือไม่พร้อมใช้งาน: 1 ห้อง/);
+      assert.ok(!f.replies[0].content.includes(otherId));
+    }
+  }
+});
+
+test('transient channel failures and requester/bot/role failures stay explicit access errors', async () => {
+  for (const subcommand of ['ดู', 'เปิด']) for (const source of ['channel', 'requester', 'bot', 'roles']) {
+    const f = fixture({ subcommand, channelIds: [otherId, channelId] });
+    let managerChecked = false;
+    const failure = () => { throw Object.assign(new Error('fetch failure'), { code: source === 'channel' ? 'ECONNRESET' : 50001 }); };
+    if (source === 'channel') f.interaction.guild.channels.fetch = failure;
+    else {
+      const collection = source === 'roles' ? f.interaction.guild.roles : f.interaction.guild.members;
+      const method = source === 'bot' ? 'fetchMe' : 'fetch';
+      const original = collection[method];
+      collection[method] = (...args) => { if (!managerChecked) { managerChecked = true; return original(...args); } return failure(); };
+      // Return promises, as Discord's fetch methods do.
+      const injected = collection[method];
+      collection[method] = async (...args) => injected(...args);
+      f.interaction.guild.channels.fetch = async () => { throw Object.assign(new Error('missing channel'), { code: 10003 }); };
+    }
+    await handleJijiCommand(f.interaction, f.options);
+    assert.match(f.replies[0].content, /ตรวจสอบสิทธิ์/);
+    assert.equal(f.config().enabled, false);
+  }
+});
+
+test('remove unresolved/deleted channel by raw Snowflake invalidates before writes without channel fetch', async () => {
+  const f = fixture({ subcommand: 'ลบ', channelIds: [otherId], enabled: true, visible: false, send: false });
+  f.interaction.options.getChannel = () => null;
+  f.interaction.options.getString = () => otherId;
+  f.interaction.guild.channels.fetch = async () => { assert.fail('removal must not fetch channel'); };
+  await handleJijiCommand(f.interaction, f.options);
+  assert.deepEqual(f.calls.filter(x => ['invalidate', 'remove', 'clearChannel'].includes(x[0])), [['invalidate', { channelId: otherId }], ['remove', otherId], ['clearChannel', otherId]]);
+  assert.deepEqual(f.config(), { enabled: true, channelIds: [] });
+  assert.ok(!f.replies[0].content.includes(otherId));
+  await handleJijiCommand(f.interaction, f.options);
+  assert.match(f.replies.at(-1).content, /ลบห้องสนทนา/);
+});
+
+test('remove requires exactly one valid option and current manager permission', async () => {
+  for (const [selected, rawId, manager] of [
+    [null, null, true], [true, channelId, true], [null, '', true], [null, '1'.repeat(16), true],
+    [null, '1'.repeat(21), true], [null, 'x'.repeat(18), true], [null, ` ${channelId}`, true],
+    [null, channelId, false], [{ id: channelId, guildId: otherId, type: ChannelType.GuildText }, null, true],
+    [{ id: channelId, guildId, type: ChannelType.PublicThread }, null, true],
+  ]) {
+    const f = fixture({ subcommand: 'ลบ', manager, channelIds: [channelId] });
+    if (selected !== true) f.interaction.options.getChannel = () => selected;
+    f.interaction.options.getString = () => rawId;
+    await handleJijiCommand(f.interaction, f.options);
+    assert.ok(!f.calls.some(x => ['invalidate', 'remove', 'clearChannel'].includes(x[0])));
+    assert.match(f.replies[0].content, manager ? /กรุณา/ : /Manage Server/);
+  }
+});
+
+test('raw channel removal accepts 17 and 20 digit Snowflakes', async () => {
+  for (const id of ['1'.repeat(17), '1'.repeat(20)]) {
+    const f = fixture({ subcommand: 'ลบ', channelIds: [id] });
+    f.interaction.options.getChannel = () => null; f.interaction.options.getString = () => id;
+    await handleJijiCommand(f.interaction, f.options);
+    assert.equal(f.config().channelIds.length, 0);
+    assert.match(f.replies[0].content, /ลบห้องสนทนา/);
+  }
 });

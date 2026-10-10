@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 
 const SNOWFLAKE = /^\d{17,20}$/;
@@ -55,6 +55,14 @@ export async function openJijiMemory(path, guildId, {
   rename: move = rename,
 } = {}) {
   if (!validId(guildId)) throw new Error('Invalid Jiji guild ID');
+  const temporaryPath = `${path}.tmp`;
+  async function discardTemporary() {
+    try { await unlink(temporaryPath); } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+    }
+  }
+  // A temporary file is never committed memory, even if the canonical file is absent or corrupt.
+  await discardTemporary();
   let current = [];
   try {
     current = validateData(JSON.parse(await readFile(path, 'utf8')), guildId);
@@ -64,6 +72,8 @@ export async function openJijiMemory(path, guildId, {
   let pending = Promise.resolve();
   function enqueue(change) {
     const operation = pending.then(async () => {
+      // Cleanup also runs for no-op erasure/prune/reconciliation operations.
+      await discardTemporary();
       const at = now();
       if (!validTime(at)) throw new Error('Invalid Jiji memory clock');
       const next = structuredClone(current).filter(session => at - session.updatedAt < IDLE_MS);
@@ -74,8 +84,13 @@ export async function openJijiMemory(path, guildId, {
       }
       if (JSON.stringify(next) !== JSON.stringify(current)) {
         await mkdir(dirname(path), { recursive: true });
-        await write(`${path}.tmp`, JSON.stringify({ version: 1, guildId, sessions: next }, null, 2), { mode: 0o600 });
-        await move(`${path}.tmp`, path);
+        try {
+          await write(temporaryPath, JSON.stringify({ version: 1, guildId, sessions: next }, null, 2), { mode: 0o600 });
+          await move(temporaryPath, path);
+        } catch (error) {
+          await discardTemporary();
+          throw error;
+        }
         current = next;
       }
       return result;

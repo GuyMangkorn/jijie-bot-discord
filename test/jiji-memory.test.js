@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -148,4 +148,59 @@ test('memory rejects invalid clearing/reconciliation scopes and invalid clocks',
   }
   now = 0;
   assert.deepEqual(await memory.get(scope), [{ ...pair, at: 0 }]);
+}));
+
+
+test('failed first append removes partial temporary text before no-op clear', async () => {
+  for (const point of ['write', 'rename']) await temporary(async (path) => {
+    const memory = await openJijiMemory(path, guildId, { now: () => 100,
+      writeFile: async (...args) => { await writeFile(...args); if (point === 'write') throw new Error('partial write'); },
+      rename: async () => { throw new Error('rename failed'); },
+    });
+    await assert.rejects(memory.append(scope, pair), /partial write|rename failed/);
+    await assert.rejects(readFile(`${path}.tmp`), { code: 'ENOENT' });
+    await memory.clear(scope);
+    await assert.rejects(readFile(path), { code: 'ENOENT' });
+    await assert.rejects(readFile(`${path}.tmp`), { code: 'ENOENT' });
+    assert.deepEqual(await memory.get(scope), []);
+  });
+});
+
+test('startup discards stale temporary conversations without promoting them or replacing corrupt canonical data', async () => {
+  for (const canonical of [null, JSON.stringify(data([session()])), '{broken']) await temporary(async (path) => {
+    const stalePair = { user: 'uncommitted secret', assistant: 'uncommitted answer' };
+    await writeFile(`${path}.tmp`, JSON.stringify(data([session({ turns: [{ ...stalePair, at: 100 }] })])));
+    if (canonical !== null) await writeFile(path, canonical);
+    if (canonical === '{broken') await assert.rejects(openJijiMemory(path, guildId, { now: () => 100 }));
+    else {
+      const memory = await openJijiMemory(path, guildId, { now: () => 100 });
+      assert.deepEqual(await memory.get(scope), canonical === null ? [] : [{ ...pair, at: 100 }]);
+    }
+    await assert.rejects(readFile(`${path}.tmp`), { code: 'ENOENT' });
+    if (canonical === null) await assert.rejects(readFile(path), { code: 'ENOENT' });
+    else assert.equal(await readFile(path, 'utf8'), canonical);
+  });
+});
+
+test('no-op clear, channel clear, global clear, expiry prune and reconcile discard stale temporary text', async () => {
+  for (const method of ['clear', 'clearChannel', 'clearAll', 'prune', 'disabled', 'removed']) await temporary(async (path) => {
+    let now = 100;
+    const memory = await openJijiMemory(path, guildId, { now: () => now, rename: async () => { throw new Error('failed append'); } });
+    await assert.rejects(memory.append(scope, pair), /failed append/);
+    // Also emulate a leftover from an interrupted write while canonical state is empty.
+    await writeFile(`${path}.tmp`, JSON.stringify(data([session()])));
+    now += 1_800_000;
+    if (method === 'disabled') await memory.reconcile({ enabled: false, channelIds: [channelId] });
+    else if (method === 'removed') await memory.reconcile({ enabled: true, channelIds: [] });
+    else await memory[method](method === 'clearChannel' ? channelId : scope);
+    await assert.rejects(readFile(`${path}.tmp`), { code: 'ENOENT' });
+    await assert.rejects(readFile(path), { code: 'ENOENT' });
+    assert.deepEqual(await memory.get(scope), []);
+  });
+});
+
+test('memory canonical writes have private 0600 file mode', async () => temporary(async (path) => {
+  const memory = await openJijiMemory(path, guildId, { now: () => 100 });
+  await memory.append(scope, pair);
+  assert.equal((await stat(path)).mode & 0o777, 0o600);
 }));

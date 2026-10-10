@@ -1,13 +1,17 @@
 import { ChannelType, MessageFlags, PermissionFlagsBits } from 'discord.js';
-import { refreshJijiAccess } from './jiji-access.js';
+import { JijiChannelUnavailableError, refreshJijiAccess } from './jiji-access.js';
 
+const SNOWFLAKE = /^\d{17,20}$/;
 const roomOption = { type: 7, name: 'ห้อง', description: 'ห้องข้อความสำหรับคุยกับจีจี้', required: true, channel_types: [ChannelType.GuildText] };
 export const jijiCommandData = {
   name: 'จีจี้', description: 'ตั้งค่าห้องสนทนาของจีจี้', type: 1,
   default_member_permissions: PermissionFlagsBits.ManageGuild.toString(),
   options: [
     { type: 1, name: 'เพิ่ม', description: 'เพิ่มห้องสนทนาโดยไม่เปลี่ยนสถานะเปิดปิด', options: [{ ...roomOption }] },
-    { type: 1, name: 'ลบ', description: 'ลบห้องสนทนาและล้างความจำของห้อง', options: [{ ...roomOption }] },
+    { type: 1, name: 'ลบ', description: 'ลบห้องสนทนาและล้างความจำของห้อง', options: [
+      { ...roomOption, required: false },
+      { type: 3, name: 'รหัสห้อง', description: 'Channel ID 17–20 หลักสำหรับห้องที่เลือกไม่ได้', required: false, min_length: 17, max_length: 20 },
+    ] },
     { type: 1, name: 'ดู', description: 'ดูสถานะและห้องสนทนาที่คุณเข้าถึงได้' },
     { type: 1, name: 'เปิด', description: 'เปิดการสนทนาของจีจี้' },
     { type: 1, name: 'ปิด', description: 'ปิดการสนทนาและล้างความจำทั้งหมด' },
@@ -18,7 +22,6 @@ const STORAGE_ERROR = 'บันทึกการตั้งค่าหรื
 const ACCESS_ERROR = 'ตรวจสอบสิทธิ์สมาชิก ห้อง หรือบอตไม่สำเร็จ กรุณาลองอีกครั้ง';
 const reply = (interaction, content) => interaction.editReply({ content, allowedMentions: { parse: [] } });
 const state = enabled => enabled ? 'เปิดอยู่' : 'ปิดอยู่';
-const unknownChannel = error => String(error?.code ?? error?.rawError?.code) === '10003';
 
 async function checkManager(guild, userId) {
   const [requester, bot] = await Promise.all([
@@ -71,10 +74,21 @@ export async function handleJijiCommand(interaction, { guildId, settings, memory
   }
   if (subcommand === 'เพิ่ม' || subcommand === 'ลบ') {
     const selected = interaction.options.getChannel('ห้อง');
-    if (!selected || selected.guildId !== guildId || selected.type !== ChannelType.GuildText) {
+    const rawId = subcommand === 'ลบ' ? interaction.options.getString('รหัสห้อง') : null;
+    if (subcommand === 'ลบ' && ((selected !== null && selected !== undefined) === (rawId !== null && rawId !== undefined))) {
+      await reply(interaction, 'กรุณาระบุห้องหรือรหัสห้องอย่างใดอย่างหนึ่งเท่านั้น');
+      return;
+    }
+    if (rawId !== null && rawId !== undefined) {
+      if (typeof rawId !== 'string' || !SNOWFLAKE.test(rawId)) {
+        await reply(interaction, 'กรุณาระบุรหัสห้องเป็นตัวเลข 17–20 หลัก');
+        return;
+      }
+    } else if (!selected || selected.guildId !== guildId || selected.type !== ChannelType.GuildText) {
       await reply(interaction, 'กรุณาเลือกห้องข้อความในเซิร์ฟเวอร์นี้');
       return;
     }
+    const selectedId = rawId ?? selected.id;
     if (subcommand === 'เพิ่ม') {
       try {
         const access = await refreshJijiAccess(interaction.guild, selected.id, userId);
@@ -89,9 +103,9 @@ export async function handleJijiCommand(interaction, { guildId, settings, memory
     try {
       if (subcommand === 'เพิ่ม') await settings.add(selected.id);
       else {
-        invalidate({ channelId: selected.id });
-        await settings.remove(selected.id);
-        await memory.clearChannel(selected.id);
+        invalidate({ channelId: selectedId });
+        await settings.remove(selectedId);
+        await memory.clearChannel(selectedId);
       }
       config = await settings.get();
     } catch { await reply(interaction, STORAGE_ERROR); return; }
@@ -125,7 +139,7 @@ export async function handleJijiCommand(interaction, { guildId, settings, memory
   for (const channelId of config.channelIds) {
     let access;
     try { access = await refreshJijiAccess(interaction.guild, channelId, userId); } catch (error) {
-      if (unknownChannel(error)) { hidden++; continue; }
+      if (error instanceof JijiChannelUnavailableError) { hidden++; continue; }
       await reply(interaction, ACCESS_ERROR); return;
     }
     if (!access.isManager) { await reply(interaction, 'คำสั่งนี้ต้องใช้สิทธิ์ Manage Server'); return; }
