@@ -1,5 +1,12 @@
 const REQUIRED_CONFIG = ['DISCORD_TOKEN', 'DISCORD_CLIENT_ID', 'DISCORD_GUILD_ID'];
 
+export function validateGeminiModel(model) {
+  if (typeof model !== 'string' || !/^gemini-[a-z0-9][a-z0-9.-]{0,99}$/.test(model)) {
+    throw Object.assign(new Error('invalid_model'), { category: 'invalid_model' });
+  }
+  return model;
+}
+
 export function readConfig(env = process.env) {
   const config = {};
   const missing = [];
@@ -21,5 +28,7 @@ export function readConfig(env = process.env) {
     token: config.DISCORD_TOKEN,
     clientId: config.DISCORD_CLIENT_ID,
     guildId: config.DISCORD_GUILD_ID,
+    geminiApiKey: env.GEMINI_API_KEY?.trim() || undefined,
+    geminiModel: validateGeminiModel(env.GEMINI_MODEL?.trim() || 'gemini-2.5-flash'),
   };
 }
