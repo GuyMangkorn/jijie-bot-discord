@@ -9,9 +9,35 @@ import { handleActivity } from './activity-command.js';
 import { openWelcomeSettings } from './welcome-settings.js';
 import { registerWelcomeHandlers } from './member-join.js';
 import { fileURLToPath } from 'node:url';
+import { resolve } from 'node:path';
+import { createJijiRuntime } from './jiji-runtime.js';
 
-async function startBot() {
-  const { token, guildId } = readConfig();
+export const botIntents = [
+  GatewayIntentBits.Guilds,
+  GatewayIntentBits.GuildMembers,
+  GatewayIntentBits.GuildMessages,
+  GatewayIntentBits.GuildVoiceStates,
+  GatewayIntentBits.MessageContent,
+];
+
+export function registerMessageHandlers(client, { activityLog, guildId, jijiRuntime }) {
+  client.on(Events.MessageCreate, (message) => {
+    // Start both paths independently: slow or failed chat must not delay activity.
+    const activity = Promise.resolve().then(() => {
+      const event = activityFromMessage(message);
+      if (event && event.guildId === guildId) return activityLog.record(event);
+    }).catch((error) => {
+      console.error('บันทึกประวัติกิจกรรมไม่สำเร็จ', error?.name ?? 'Error', error?.code ?? '');
+    });
+    const chat = Promise.resolve().then(() => jijiRuntime.handleMessage(message)).catch(() => {
+      console.error('จัดการข้อความจีจี้ไม่สำเร็จ', 'chat_failed');
+    });
+    return Promise.all([activity, chat]);
+  });
+}
+
+export async function startBot() {
+  const { token, guildId, geminiApiKey, geminiModel } = readConfig();
   const departureLog = await openDepartureLog(
     fileURLToPath(new URL('../data/departures.json', import.meta.url)), guildId,
   );
@@ -21,14 +47,8 @@ async function startBot() {
   const welcomeSettings = await openWelcomeSettings(
     fileURLToPath(new URL('../data/welcome.json', import.meta.url)), guildId,
   );
-  const client = new Client({
-    intents: [
-      GatewayIntentBits.Guilds,
-      GatewayIntentBits.GuildMembers,
-      GatewayIntentBits.GuildMessages,
-      GatewayIntentBits.GuildVoiceStates,
-    ],
-  });
+  const client = new Client({ intents: botIntents });
+  const jijiRuntime = await createJijiRuntime({ client, guildId, geminiApiKey, geminiModel, departureLog });
 
   function recordActivity(event) {
     if (!event || event.guildId !== guildId) return;
@@ -46,6 +66,7 @@ async function startBot() {
       handleLatestMembers(interaction),
       handleDepartures(interaction, departureLog, guildId),
       handleActivity(interaction, { activityLog, guildId }),
+      jijiRuntime.handleInteraction(interaction),
     ]).catch((error) => {
       console.error('จัดการคำสั่งไม่สำเร็จ', error?.name ?? 'Error', error?.code ?? '');
     });
@@ -60,9 +81,7 @@ async function startBot() {
     recordActivity(activityFromMember(member, 'leave'));
   });
 
-  client.on(Events.MessageCreate, (message) => {
-    recordActivity(activityFromMessage(message));
-  });
+  registerMessageHandlers(client, { activityLog, guildId, jijiRuntime });
 
   client.on(Events.VoiceStateUpdate, (before, after) => {
     recordActivity(activityFromVoiceState(after.member ?? before.member, before, after));
@@ -75,10 +94,25 @@ async function startBot() {
   }, 60 * 60 * 1000);
   activityRetentionTimer.unref();
 
-  await client.login(token);
+  function close() {
+    clearInterval(activityRetentionTimer);
+    jijiRuntime.close();
+    client.destroy();
+  }
+  try {
+    await client.login(token);
+  } catch (error) {
+    close();
+    throw error;
+  }
+  return { client, close };
 }
 
-startBot().catch((error) => {
-  console.error('เริ่มบอตไม่สำเร็จ', error?.name ?? 'Error', error?.code ?? '');
-  process.exitCode = 1;
-});
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  startBot().then(({ close }) => {
+    for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, close);
+  }).catch((error) => {
+    console.error('เริ่มบอตไม่สำเร็จ', error?.name ?? 'Error', error?.code ?? '');
+    process.exitCode = 1;
+  });
+}
