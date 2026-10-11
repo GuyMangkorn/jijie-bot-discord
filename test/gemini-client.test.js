@@ -248,3 +248,40 @@ test('input and missing-key bounds avoid any provider request', async () => {
   assert.equal(requests.length, 0);
   await assert.rejects(createGeminiClient({}).respond({ text: 'hi' }), { message: 'missing_key' });
 });
+
+test('nested Search HTTP diagnostic survives tool result', async () => {
+  const { client, requests } = fixture([
+    jsonResponse(reply([searchCall('weather Bangkok')])),
+    { ok: false, status: 429, json: () => assert.fail('HTTP body must not be read') },
+  ]);
+  const progress = [];
+  let failure;
+  await assert.rejects(client.respond({ text: 'ค้นอากาศ', tools: searchTools(), onProgress: snapshot => progress.push(snapshot) }), error => {
+    failure = error;
+    return error.category === 'search_failed';
+  });
+  assert.deepEqual(failure.diagnostic, { stage: 'google_search', reason: 'http', status: 429 });
+  assert.deepEqual(progress.at(-1), { stage: 'google_search', requestCount: 2, toolCount: 1 });
+  assert.equal(requests.length, 2);
+});
+
+test('diagnostic metadata never reaches a Gemini function response', async () => {
+  const { client, requests } = fixture([
+    jsonResponse(reply([call()])), jsonResponse(reply([{ text: 'จบ' }])),
+  ]);
+  const tools = { execute: async () => ({ ok: false, error: 'tool_failed', diagnostic: {
+    stage: 'tool', reason: 'http', status: 429, detail: 'SENSITIVE_DIAGNOSTIC',
+  } }) };
+  await client.respond({ text: 'ถาม', tools });
+  const functionResponse = requests[1].payload.contents.at(-1).parts[0].functionResponse.response;
+  assert.deepEqual(functionResponse, { ok: false, error: 'tool_failed' });
+  assert.equal(JSON.stringify(requests.map(request => request.payload)).includes('SENSITIVE_DIAGNOSTIC'), false);
+});
+
+test('throwing progress callback is harmless and progress is emitted', async () => {
+  const { client } = fixture([jsonResponse(reply([{ text: 'ตอบได้' }]))]);
+  let calls = 0;
+  const result = await client.respond({ text: 'ถาม', onProgress: () => { calls++; throw new Error('private callback'); } });
+  assert.equal(result.text, 'ตอบได้');
+  assert.equal(calls, 2);
+});

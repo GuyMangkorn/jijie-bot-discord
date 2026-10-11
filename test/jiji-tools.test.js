@@ -106,3 +106,18 @@ test('aborted calls and late uncancellable reads never return server data', asyn
   const after = fixture({ departureLog: { latest: async () => { during.abort(); return [{ userId: '1', name: 'private', leftAt: 1 }]; } } });
   assert.equal((await after.tools.execute({ name: 'get_recent_departures', args: {} }, { signal: during.signal })).error, 'cancelled');
 });
+
+test('Search failure preserves only validated local diagnostic metadata', async () => {
+  const { tools } = fixture();
+  const failure = Object.assign(new Error('SECRET provider body'), {
+    category: 'http', status: 429,
+    diagnostic: { stage: 'google_search', reason: 'SECRET', status: 600, key: 'SECRET' },
+  });
+  const result = await tools.execute({ name: 'search_google', args: { query: 'weather' } }, {
+    searchGoogle: async () => { throw failure; },
+  });
+  assert.deepEqual(result, { ok: false, error: 'search_failed', diagnostic: {
+    stage: 'google_search', reason: 'http',
+  } });
+  assert.equal(JSON.stringify(result).includes('SECRET'), false);
+});

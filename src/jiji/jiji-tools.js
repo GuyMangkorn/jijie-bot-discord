@@ -1,4 +1,5 @@
 import { fetchLatestMembers } from '../members/member-service.js';
+import { readJijiDiagnostic } from './jiji-diagnostics.js';
 
 export const jijiToolDeclarations = [
   { name: 'get_latest_members', description: 'สมาชิกปัจจุบันที่เป็นคนและเข้าร่วมล่าสุด สูงสุด 10 คน' },
@@ -15,7 +16,7 @@ export const searchGoogleDeclaration = {
   },
 };
 
-const failed = (error) => ({ ok: false, error });
+const failed = (error, diagnostic) => ({ ok: false, error, ...(diagnostic ? { diagnostic } : {}) });
 const emptyArguments = (args) => args !== null && typeof args === 'object' &&
   Object.getPrototypeOf(args) === Object.prototype && Reflect.ownKeys(args).length === 0;
 
@@ -59,12 +60,16 @@ export function createJijiTools({ guild, guildId, userId, channelId, departureLo
       }
       if (signal?.aborted) return failed('cancelled');
       if (call.name === 'search_google') {
-        if (typeof searchGoogle !== 'function') return failed('search_failed');
+        if (typeof searchGoogle !== 'function') return failed('search_failed', { stage: 'google_search', reason: 'search_unavailable' });
         try {
           const data = await searchGoogle(call.args.query);
           return signal?.aborted ? failed('cancelled') : { ok: true, data };
-        } catch {
-          return failed(signal?.aborted ? 'cancelled' : 'search_failed');
+        } catch (error) {
+          if (signal?.aborted) return failed('cancelled');
+          const safe = readJijiDiagnostic(error);
+          const reason = safe.reason && safe.reason !== 'unknown' ? safe.reason
+            : safe.category !== 'unknown' ? safe.category : 'search_failed';
+          return failed('search_failed', { stage: 'google_search', reason, ...(safe.status === undefined ? {} : { status: safe.status }) });
         }
       }
       try {
