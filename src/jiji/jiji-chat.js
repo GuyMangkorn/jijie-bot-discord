@@ -134,9 +134,9 @@ export function createJijiChat({ guildId, botId, settings, memory, gemini, depar
         checkAccess: async () => { await freshAccess(); return isCurrent(); },
       });
       const tools = {
-        execute(call, { signal = provider.signal } = {}) {
+        execute(call, { signal = provider.signal, searchGoogle } = {}) {
           usedTools = true;
-          return cancellable(() => { assertCurrent(); return permittedTools.execute(call, { signal }); }, signal);
+          return cancellable(() => { assertCurrent(); return permittedTools.execute(call, { signal, searchGoogle }); }, signal);
         },
       };
       const result = await cancellable(() => {

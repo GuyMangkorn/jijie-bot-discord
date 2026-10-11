@@ -40,6 +40,88 @@ async function fixture(t) {
 }
 const json = async path => JSON.parse(await readFile(path, 'utf8'));
 
+const searchRequest = () => response([{ functionCall: { name: 'search_google', args: { query: 'ข่าวล่าสุด' } } }]);
+const searchResponse = () => ({ ok: true, json: async () => ({ candidates: [{
+  content: { role: 'model', parts: [{ text: 'ข่าวที่ตรวจแล้ว' }] },
+  groundingMetadata: {
+    webSearchQueries: ['ข่าวล่าสุด'], groundingChunks: [{ web: { uri: 'https://example.com/news', title: 'News' } }],
+    searchEntryPoint: { renderedContent: '<a href="https://www.google.com/search?q=news">news</a>' },
+  },
+}] }) });
+
+test('runtime searches, replies with provider links and keeps ordinary memory unchanged across restart', async t => {
+  const f = await fixture(t); let runtime = await f.open(); await f.enable(runtime);
+  await runtime.handleMessage(f.message());
+  const before = await json(f.memoryPath);
+  let count = 0;
+  f.setFetch(() => [searchRequest(), searchResponse(), response([{ text: 'สรุปข่าวล่าสุด' }])][count++]);
+  f.advance(); await runtime.handleMessage(f.message('จีจี้ช่วยค้นข่าวล่าสุด'));
+  assert.equal(count, 3);
+  assert.match(f.replies.at(-1).content, /สรุปข่าวล่าสุด/);
+  assert.match(f.replies.at(-1).content, /https:\/\/example.com\/news/);
+  assert.match(f.replies.at(-1).content, /ค้นหาต่อบน Google/);
+  assert.deepEqual(f.replies.at(-1).allowedMentions, { parse: [], repliedUser: false });
+  assert.deepEqual(await json(f.memoryPath), before);
+  runtime.close(); runtime = await f.open();
+  f.setFetch(() => response([{ text: 'คุยต่อ' }])); f.advance();
+  await runtime.handleMessage(f.message('จีจี้คุยต่อ'));
+  const contents = f.requests.at(-1).contents;
+  assert.equal(JSON.stringify(contents).includes('ข่าว'), false);
+  assert.deepEqual(contents.slice(0, 2).map(item => item.parts[0].text), ['สวัสดี', 'สวัสดี 😊']);
+});
+
+test('runtime search failure gives the existing Thai failure with no stored search turn', async t => {
+  const f = await fixture(t), runtime = await f.open(); await f.enable(runtime);
+  let count = 0;
+  f.setFetch(() => count++ === 0 ? searchRequest() : { ok: false, status: 429 });
+  await runtime.handleMessage(f.message('จีจี้ค้นข่าว'));
+  assert.equal(count, 2);
+  assert.equal(f.replies.at(-1).content, JIJI_TIRED_MESSAGE);
+  await assert.rejects(readFile(f.memoryPath), { code: 'ENOENT' });
+});
+
+test('forget, disable and close during Google Search abort it and discard its late result', async t => {
+  for (const action of ['ลืม', 'ปิด', 'close']) {
+    const f = await fixture(t), runtime = await f.open(); await f.enable(runtime);
+    await runtime.handleMessage(f.message()); f.advance();
+    let count = 0, enter, release, signal;
+    const started = new Promise(resolve => { enter = resolve; });
+    f.setFetch(options => {
+      if (count++ === 0) return searchRequest();
+      signal = options.signal; enter(); return new Promise(resolve => { release = resolve; });
+    });
+    const pending = runtime.handleMessage(f.message('จีจี้ค้นข่าว')); await started;
+    if (action === 'close') runtime.close();
+    else await runtime.handleInteraction(f.interaction(action === 'ลืม' ? undefined : action, action === 'ลืม' ? action : 'จีจี้'));
+    const before = f.replies.length;
+    await pending; assert.equal(signal.aborted, true);
+    release(searchResponse()); await new Promise(resolve => setImmediate(resolve));
+    assert.equal(count, 2); assert.equal(f.replies.length, before);
+    const stored = await json(f.memoryPath);
+    assert.equal(JSON.stringify(stored).includes('ข่าว'), false);
+    if (action !== 'close') assert.deepEqual(stored.sessions, []);
+  }
+});
+
+test('permission loss during search prevents delivery and persistence', async t => {
+  const f = await fixture(t), runtime = await f.open(); await f.enable(runtime);
+  let count = 0;
+  const message = f.message('จีจี้ค้นข่าว');
+  f.setFetch(() => {
+    count += 1;
+    if (count === 1) return searchRequest();
+    if (count === 2) {
+      message.channel.permissionsFor = () => ({ has: () => false });
+      return searchResponse();
+    }
+    return response([{ text: 'คำตอบที่ห้ามส่ง' }]);
+  });
+  const before = f.replies.length;
+  await runtime.handleMessage(message);
+  assert.equal(f.replies.length, before);
+  await assert.rejects(readFile(f.memoryPath), { code: 'ENOENT' });
+});
+
 test('manager add stays disabled; enable, chat, restart, tool exclusion, forget, disable persist', async t => {
   const f = await fixture(t); let runtime = await f.open();
   await runtime.handleInteraction(f.interaction('เพิ่ม'));
