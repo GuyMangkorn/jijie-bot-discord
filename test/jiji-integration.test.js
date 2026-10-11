@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { ChannelType, Events, GatewayIntentBits, PermissionFlagsBits as P } from 'discord.js';
 import { createJijiRuntime } from '../src/jiji/jiji-runtime.js';
+import { createJijiDiagnostics } from '../src/jiji/jiji-diagnostics.js';
 import { registerMessageHandlers, botIntents } from '../src/index.js';
 import { registerCommands } from '../scripts/register-commands.js';
 import { registerInteractionDispatcher } from '../src/commands/interaction-dispatch.js';
@@ -254,4 +255,60 @@ test('registration patches/posts owned commands individually and preserves unrel
   await registerCommands({ rest, clientId: botId, guildId });
   assert.deepEqual(calls.map(([method, , name]) => [method, name]), [['patch', 'ล่าสุด'], ['post', 'ออกล่าสุด'], ['post', 'กิจกรรม'], ['post', 'ต้อนรับ'], ['patch', 'จีจี้'], ['post', 'ลืม']]);
   assert.ok(calls.every(([, route]) => !route.includes('unrelated'))); assert.equal(unrelated.name, 'keep-me');
+});
+
+
+test('runtime Search 429 produces a safe diagnostic, tired reply and no memory pair', async t => {
+  const f = await fixture(t), logs = [];
+  const traceId = '00000000-0000-4000-8000-000000000003';
+  const runtime = await f.open({
+    diagnostics: createJijiDiagnostics({ write: line => logs.push(JSON.parse(line)), now: () => 1_000_000 }),
+    traceId: () => traceId,
+  });
+  await f.enable(runtime);
+  let count = 0;
+  f.setFetch(() => count++ === 0 ? searchRequest() : {
+    ok: false, status: 429, json: () => assert.fail('Search HTTP error body must not be read'),
+  });
+  await runtime.handleMessage(f.message('จีจี้ค้นข่าว_SECRET_QUERY'));
+  assert.equal(f.replies.at(-1).content, JIJI_TIRED_MESSAGE);
+  assert.equal(count, 2);
+  assert.equal(logs.length, 1);
+  assert.deepEqual(logs[0], {
+    event: 'jiji_turn_failed', timestamp: '1970-01-01T00:16:40.000Z', traceId,
+    stage: 'google_search', category: 'search_failed', httpStatus: 429, reason: 'http',
+    durationMs: 0, requestCount: 2, toolCount: 1,
+  });
+  const logText = JSON.stringify(logs);
+  for (const secret of ['offline-fixture', 'ข่าว_SECRET_QUERY', userId, channelId, guildId, 'PRIVATE_PROVIDER_BODY']) {
+    assert.equal(logText.includes(secret), false);
+  }
+  await assert.rejects(readFile(f.memoryPath), { code: 'ENOENT' });
+});
+
+test('runtime shutdown logs once and ignores late provider settlement', async t => {
+  const f = await fixture(t), logs = [];
+  const runtime = await f.open({
+    diagnostics: createJijiDiagnostics({ write: line => logs.push(JSON.parse(line)), now: () => 1_000_000 }),
+    traceId: () => '00000000-0000-4000-8000-000000000004',
+  });
+  await f.enable(runtime);
+  let signal, release, enter;
+  const started = new Promise(resolve => { enter = resolve; });
+  f.setFetch(options => { signal = options.signal; enter(); return new Promise(resolve => { release = resolve; }); });
+  const before = f.replies.length;
+  const pending = runtime.handleMessage(f.message());
+  await started;
+  runtime.close();
+  await pending;
+  assert.equal(signal.aborted, true);
+  assert.equal(logs.length, 1);
+  assert.equal(logs[0].event, 'jiji_turn_cancelled');
+  assert.equal(logs[0].category, 'cancelled');
+  assert.equal(logs[0].reason, 'shutdown');
+  release(response([{ text: 'late secret answer' }]));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(logs.length, 1);
+  assert.equal(f.replies.length, before);
+  await assert.rejects(readFile(f.memoryPath), { code: 'ENOENT' });
 });

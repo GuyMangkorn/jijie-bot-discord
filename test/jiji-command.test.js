@@ -23,7 +23,7 @@ function fixture({ commandName = 'จีจี้', subcommand = 'เพิ่�
   const interaction = { commandName, guild, channelId, user: { id: userId }, memberPermissions: { has: () => true }, isChatInputCommand: () => true,
     options: { getSubcommand: () => subcommand, getChannel: name => { assert.equal(name, 'ห้อง'); return channel(channelId); }, getString: name => { assert.equal(name, 'รหัสห้อง'); return null; } },
     async deferReply(payload) { calls.push(['defer', payload]); }, async editReply(payload) { replies.push(payload); } };
-  const options = { guildId, settings, memory, hasApiKey: key, invalidate: scope => calls.push(['invalidate', scope]) };
+  const options = { guildId, settings, memory, hasApiKey: key, invalidate: (scope, options) => calls.push(['invalidate', scope, options]) };
   return { interaction, options, calls, replies, config: () => config };
 }
 async function run(options) { const f = fixture(options); await handleJijiCommand(f.interaction, f.options); return f; }
@@ -66,13 +66,13 @@ test('view reveals visible rooms and counts hidden without names/IDs', async () 
   const f = await run({ subcommand: 'ดู', channelIds: [channelId, otherId] }); assert.match(f.replies[0].content, /chat/); assert.match(f.replies[0].content, /1/); assert.ok(!f.replies[0].content.includes(otherId)); assert.ok(!f.replies[0].content.includes('hidden'));
 });
 test('remove inaccessible/deleted room invalidates then persists settings then clears memory idempotently', async () => {
-  const f = await run({ subcommand: 'ลบ', missing: true, channelIds: [channelId], enabled: true }); assert.deepEqual(f.calls.filter(x => ['invalidate', 'remove', 'clearChannel'].includes(x[0])), [['invalidate', { channelId }], ['remove', channelId], ['clearChannel', channelId]]); assert.deepEqual(f.config(), { enabled: true, channelIds: [] }); await handleJijiCommand(f.interaction, f.options); assert.match(f.replies.at(-1).content, /ลบ/);
+  const f = await run({ subcommand: 'ลบ', missing: true, channelIds: [channelId], enabled: true }); assert.deepEqual(f.calls.filter(x => ['invalidate', 'remove', 'clearChannel'].includes(x[0])), [['invalidate', { channelId }, { reason: 'channel_removed' }], ['remove', channelId], ['clearChannel', channelId]]); assert.deepEqual(f.config(), { enabled: true, channelIds: [] }); await handleJijiCommand(f.interaction, f.options); assert.match(f.replies.at(-1).content, /ลบ/);
 });
 test('disable retains rooms, invalidates all, persists disabled then clears memory', async () => {
-  const f = await run({ subcommand: 'ปิด', enabled: true, channelIds: [channelId] }); assert.deepEqual(f.calls.filter(x => ['invalidate', 'enabled', 'clearAll'].includes(x[0])), [['invalidate', {}], ['enabled', false], ['clearAll', undefined]]); assert.deepEqual(f.config(), { enabled: false, channelIds: [channelId] });
+  const f = await run({ subcommand: 'ปิด', enabled: true, channelIds: [channelId] }); assert.deepEqual(f.calls.filter(x => ['invalidate', 'enabled', 'clearAll'].includes(x[0])), [['invalidate', {}, { reason: 'disabled' }], ['enabled', false], ['clearAll', undefined]]); assert.deepEqual(f.config(), { enabled: false, channelIds: [channelId] });
 });
 test('forget non-manager/disabled clears caller/current channel only with invalidation first', async () => {
-  const f = await run({ commandName: 'ลืม', manager: false }); assert.deepEqual(f.calls.filter(x => ['invalidate', 'clear'].includes(x[0])), [['invalidate', { channelId, userId }], ['clear', { channelId, userId }]]); assert.match(f.replies[0].content, /ล้าง/);
+  const f = await run({ commandName: 'ลืม', manager: false }); assert.deepEqual(f.calls.filter(x => ['invalidate', 'clear'].includes(x[0])), [['invalidate', { channelId, userId }, { reason: 'forgotten' }], ['clear', { channelId, userId }]]); assert.match(f.replies[0].content, /ล้าง/);
 });
 test('persistence failures never claim success or erase memory before settings persist', async () => {
   for (const [subcommand, fail, commandName] of [['เพิ่ม', 'add'], ['ลบ', 'remove'], ['ลบ', 'clearChannel'], ['ปิด', 'enabled'], ['ปิด', 'clearAll'], ['เปิด', 'enabled'], ['ดู', 'get'], [undefined, 'clear', 'ลืม']]) { const f = await run({ subcommand, fail, commandName, channelIds: [channelId] }); assert.equal(f.replies[0].content, storageError); if (fail === 'remove') assert.ok(!f.calls.some(x => x[0] === 'clearChannel')); if (fail === 'enabled' && subcommand === 'ปิด') assert.ok(!f.calls.some(x => x[0] === 'clearAll')); }
@@ -143,7 +143,7 @@ test('remove unresolved/deleted channel by raw Snowflake invalidates before writ
   f.interaction.options.getString = () => otherId;
   f.interaction.guild.channels.fetch = async () => { assert.fail('removal must not fetch channel'); };
   await handleJijiCommand(f.interaction, f.options);
-  assert.deepEqual(f.calls.filter(x => ['invalidate', 'remove', 'clearChannel'].includes(x[0])), [['invalidate', { channelId: otherId }], ['remove', otherId], ['clearChannel', otherId]]);
+  assert.deepEqual(f.calls.filter(x => ['invalidate', 'remove', 'clearChannel'].includes(x[0])), [['invalidate', { channelId: otherId }, { reason: 'channel_removed' }], ['remove', otherId], ['clearChannel', otherId]]);
   assert.deepEqual(f.config(), { enabled: true, channelIds: [] });
   assert.ok(!f.replies[0].content.includes(otherId));
   await handleJijiCommand(f.interaction, f.options);

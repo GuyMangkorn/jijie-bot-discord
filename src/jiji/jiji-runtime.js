@@ -10,7 +10,7 @@ export async function createJijiRuntime({
   departureLog,
   settingsPath = fileURLToPath(new URL('../../data/jiji-settings.json', import.meta.url)),
   memoryPath = fileURLToPath(new URL('../../data/jiji-memory.json', import.meta.url)),
-  fetchImpl, now = Date.now,
+  fetchImpl, now = Date.now, diagnostics, traceId,
 }) {
   const settings = await openJijiSettings(settingsPath, guildId);
   const memory = await openJijiMemory(memoryPath, guildId, { now });
@@ -20,7 +20,7 @@ export async function createJijiRuntime({
   // The authenticated bot ID becomes available only after client.login().
   function getChat() {
     if (!chat && client.user?.id) {
-      chat = createJijiChat({ guildId, botId: client.user.id, settings, memory, gemini, departureLog, now });
+      chat = createJijiChat({ guildId, botId: client.user.id, settings, memory, gemini, departureLog, now, diagnostics, traceId });
     }
     return chat;
   }
@@ -39,14 +39,14 @@ export async function createJijiRuntime({
       if (closed) return;
       await handleJijiCommand(interaction, {
         guildId, settings, memory, hasApiKey: Boolean(geminiApiKey),
-        invalidate: scope => chat?.invalidate(scope),
+        invalidate: (scope, options) => chat?.invalidate(scope, options),
       });
     },
     close() {
       if (closed) return;
       closed = true;
       clearInterval(pruneTimer);
-      chat?.invalidate();
+      chat?.invalidate({}, { reason: 'shutdown' });
     },
   };
 }

@@ -256,16 +256,35 @@ npm start
 - จีจี้คุยหัวข้อทั่วไปและความบันเทิงได้ ไม่ได้จำกัดเฉพาะการดูแลเซิร์ฟเวอร์; การดูดวงเป็นความบันเทิง ไม่ใช่คำทำนายที่รับรองผล และการคุยทั่วไปยังอยู่ภายใต้นโยบายและข้อจำกัดของ Gemini
 - คำถามปัจจุบัน ความจำผู้เรียกในห้องนั้นสูงสุด 10 คู่ที่ยังไม่หมดอายุ และผลเครื่องมือที่ใช้ (รวมชื่อ, User ID และเวลาเข้าร่วม/ออก) จะส่งไป Google Gemini ข้อมูล free tier อาจถูกใช้ปรับปรุงผลิตภัณฑ์ตามเงื่อนไข Google จึงควรแจ้งสมาชิกและไม่ส่งข้อมูลลับ อ่าน [เงื่อนไข Gemini API](https://ai.google.dev/gemini-api/terms) ก่อนเลือก tier
 - โมดูลใช้ native fetch ไปยัง `https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent` เท่านั้น ส่ง key ผ่าน header `x-goog-api-key` และปฏิเสธ redirect ไม่สร้าง server chat session ไม่ส่ง attachment และไม่ดึงประวัติ Discord; Search ใช้ Google grounding ใน endpoint เดิมตามหัวข้อการค้นเว็บ ความจำเป็นไฟล์ท้องถิ่นตามหัวข้อที่เก็บข้อมูลสนทนา
-- ต่อคำถามจำกัด 3 HTTP requests รวมคำขอ Google Search, 4 function calls (Search ไม่เกินหนึ่งครั้ง), output 512 tokens และคำตอบไม่เกิน 2,000 หน่วย UTF-16; คำตอบยาวเกินจะถือว่าล้มเหลว `src/jiji/jiji-chat.js` ส่ง AbortSignal ของ deadline รวม 30 วินาทีซึ่งครอบคลุมสิทธิ์ เครื่องมือ และ Gemini; โมดูลยกเลิกหรือทิ้งผลล่าช้า โมดูลไม่ log และข้อผิดพลาดมีเฉพาะ category/status ที่กำหนดในโค้ด ไม่มี provider body, key หรือบทสนทนา
+- ต่อคำถามจำกัด 3 HTTP requests รวมคำขอ Google Search, 4 function calls (Search ไม่เกินหนึ่งครั้ง), output 512 tokens และคำตอบไม่เกิน 2,000 หน่วย UTF-16; คำตอบยาวเกินจะถือว่าล้มเหลว `src/jiji/jiji-chat.js` ส่ง AbortSignal ของ deadline รวม 30 วินาทีซึ่งครอบคลุมสิทธิ์ เครื่องมือ และ Gemini; โมดูลยกเลิกหรือทิ้งผลล่าช้า เมื่อเกิดความล้มเหลว runtime จะส่ง structured diagnostic ที่ผ่าน allowlist ไป stderr ตามหัวข้อถัดไป โดยไม่มี provider body, key หรือบทสนทนา
 - provider failure รวม quota/key/HTTP/network/timeout, Search ล้มเหลวหรือ metadata ไม่ครบ, blocked/empty/malformed response และงบการเรียกหมด จะตอบ `จีจี้เหนื่อยแล้ว 😴 รอก่อนแล้วค่อยมาคุยกันใหม่นะ` โดยไม่บันทึกเป็นความจำ ส่วนการดึงสมาชิกหรืออ่านไฟล์ล้มเหลวต้องใช้ข้อผิดพลาดไทยด้านงานนั้นแยกต่างหาก
 
 รูปแบบ request/response อ้างอิง [Gemini generateContent REST](https://ai.google.dev/api/generate-content) และ [function calling](https://ai.google.dev/gemini-api/docs/function-calling): ใช้ `parametersJsonSchema` สำหรับ schema กลาง และคง model parts รวม thought signatures เมื่อส่งผลเครื่องมือกลับ ไม่แสดง thought text เป็นคำตอบ
 
 ### การตรวจสอบข้อผิดพลาดจีจี้
 
-`src/jiji/jiji-diagnostics.js` กำหนดรูปแบบ JSON line และ allowlist สำหรับข้อมูลวินิจฉัย โดยยังไม่เชื่อมกับ runtime ในขั้นนี้ จึงยังไม่มี per-turn diagnostic log ให้เก็บ สเปกและข้อจำกัดด้านข้อมูลอยู่ใน [Jiji error logging design](docs/superpowers/specs/2026-10-11-jiji-error-logging-design.md); วิธีเปิดใช้และคำแนะนำสำหรับผู้ดูแลจะเพิ่มเมื่อ runtime เชื่อม logger แล้ว
+เมื่อคำถามจีจี้ล้มเหลว runtime เขียน JSON หนึ่งบรรทัดต่อเหตุการณ์ไปที่ `stderr` โดยยังคงข้อความที่ผู้ใช้เห็นเหมือนเดิม ตัวอย่าง Search ตอบ HTTP 429:
 
-`gemini.respond` ส่ง progress callback เฉพาะ `{ stage, requestCount, toolCount }`; Search/tool failure อาจมี diagnostic ภายในเฉพาะ `{ stage, reason, status? }` และต้องตัดออกก่อนส่ง function response กลับ Gemini รหัส HTTP เช่น 429 บอกสถานะที่ตอบกลับเท่านั้น ไม่ยืนยันสาเหตุ quota/key โดยลำพัง
+```json
+{"event":"jiji_turn_failed","timestamp":"2026-10-11T01:23:45.000Z","traceId":"00000000-0000-4000-8000-000000000001","stage":"google_search","category":"search_failed","httpStatus":429,"reason":"http","durationMs":812,"requestCount":2,"toolCount":1}
+```
+
+`timestamp` เป็นเวลา UTC; `traceId` เป็น UUID ที่สร้างเฉพาะคำถาม; `stage` ระบุช่วงงาน; `category` และ `reason` เป็นรหัสภายในที่ผ่าน allowlist; `httpStatus` มีเฉพาะเมื่อมี HTTP status ที่ถูกต้อง; `durationMs` คือเวลาที่ผ่านไป; `requestCount` นับ Gemini และ Search requests รวมกันสูงสุด 3; `toolCount` นับการเรียกเครื่องมือสูงสุด 4. HTTP 429 ยืนยันเพียงว่าได้รับสถานะ 429 ไม่ได้พิสูจน์ว่า key ผิดหรือ quota หมด
+
+ความล้มเหลวที่เกิดจากผู้ดูแลล้างความจำ ลบห้อง ปิดจีจี้ หรือปิดโปรเซสจะใช้ `event: "jiji_turn_cancelled"` พร้อมเหตุผล เช่น `forgotten`, `channel_removed`, `disabled` หรือ `shutdown`; timeout จะใช้เหตุผล `provider_timeout` หรือ `turn_timeout` ตามขอบเขตที่หมดเวลา หากงานหมดเวลาเฉพาะ provider จีจี้ยังพยายามส่งข้อความเหนื่อยเดิมภายใน deadline รวม ส่วนการยกเลิกจากผู้ดูแลจะไม่ส่งคำตอบล่าช้า การปฏิเสธสิทธิ์ตามปกติและการทักทายไม่สร้าง log
+
+Log มีเฉพาะชื่อ event, เวลา, trace ID, stage, category, reason, HTTP status และตัวนับที่จำกัดค่า ไม่เก็บชื่อหรือ ID ของ Discord, ข้อความ/ประวัติสนทนา, prompt, คำตอบ, คำค้น/URL, ข้อมูลเครื่องมือ, provider body, error message/stack, key หรือ headers การเก็บไฟล์และการหมุน/ลบ log เป็นหน้าที่ผู้ดูแล แอปไม่สร้างไฟล์ log ใน `data/` และไม่จัดการ retention ให้
+
+บนเครื่องที่ต้องการเก็บ log ให้รัน:
+
+```sh
+mkdir -p logs
+npm start 2>>logs/jiji-errors.log
+```
+
+ไฟล์นี้รับ stderr ทั้งหมดของโปรเซส ซึ่งอาจมีข้อความอื่นนอกเหนือจาก Jiji diagnostics; ผู้ดูแลเป็นผู้กำหนดการหมุนเวียนและลบไฟล์ โฟลเดอร์ `logs/` ถูกละเว้นโดย Git
+
+หลังติดตั้งเวอร์ชันที่มีการเปลี่ยนแปลงนี้ ให้หยุดโปรเซสเดิมแล้วรัน `npm start` ใหม่ ไม่ต้อง `npm run register`, เพิ่มค่า `.env`, เปลี่ยน permission/intent หรือย้าย/migrate ข้อมูลเดิม `gemini.respond` ส่ง progress ภายในเฉพาะ `{ stage, requestCount, toolCount }`; Search/tool failure ส่ง metadata ภายใน `{ stage, reason, status? }` และตัดออกก่อนส่ง function response กลับ Gemini
 
 ### การเรียกและวงจรสนทนาจีจี้
 

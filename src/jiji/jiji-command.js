@@ -48,7 +48,7 @@ export async function handleJijiCommand(interaction, { guildId, settings, memory
     }
     try {
       const scope = { channelId: interaction.channelId, userId };
-      invalidate(scope);
+      invalidate(scope, { reason: 'forgotten' });
       await memory.clear(scope);
     } catch {
       await reply(interaction, STORAGE_ERROR);
@@ -103,7 +103,7 @@ export async function handleJijiCommand(interaction, { guildId, settings, memory
     try {
       if (subcommand === 'เพิ่ม') await settings.add(selected.id);
       else {
-        invalidate({ channelId: selectedId });
+        invalidate({ channelId: selectedId }, { reason: 'channel_removed' });
         await settings.remove(selectedId);
         await memory.clearChannel(selectedId);
       }
@@ -117,7 +117,7 @@ export async function handleJijiCommand(interaction, { guildId, settings, memory
   }
   if (subcommand === 'ปิด') {
     try {
-      invalidate({});
+      invalidate({}, { reason: 'disabled' });
       await settings.setEnabled(false);
       await memory.clearAll();
     } catch { await reply(interaction, STORAGE_ERROR); return; }

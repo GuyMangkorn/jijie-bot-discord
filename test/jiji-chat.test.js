@@ -9,8 +9,9 @@ const busy = 'จีจี้กำลังคิดอยู่ 😊 รอแ
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
 const flush = async () => { for (let i = 0; i < 200; i++) await Promise.resolve(); };
 const waitFor = async predicate => { for (let i = 0; i < 1000; i++) { if (predicate()) return; await Promise.resolve(); } assert.fail('Expected asynchronous boundary was not reached'); };
-function fixture() {
-  const calls = [], replies = [], saves = [], requests = [];
+const traceId = '00000000-0000-4000-8000-000000000002';
+function fixture({ diagnostics } = {}) {
+  const calls = [], replies = [], saves = [], requests = [], logs = [];
   let time = 10000, config = { enabled: true, channelIds: [channelId, otherChannel] };
   let visible = true, send = true;
   const requester = { id: userId }, bot = { id: botId };
@@ -28,10 +29,11 @@ function fixture() {
   };
   const gemini = { async respond(options) { requests.push(options); return { text: 'สวัสดี 😊', usedTools: false }; } };
   const departureLog = { latest: async () => [] };
-  const chat = createJijiChat({ guildId, botId, settings, memory, gemini, departureLog, now: () => time });
+  const chat = createJijiChat({ guildId, botId, settings, memory, gemini, departureLog, now: () => time,
+    diagnostics: diagnostics ?? { record: record => logs.push(record) }, traceId: () => traceId });
   const message = (changes = {}) => ({ guildId, guild, channelId, channel: channel(channelId), author: { id: userId, bot: false }, content: 'จีจี้ สวัสดี',
     async reply(payload) { replies.push(payload); }, ...changes });
-  return { chat, message, guild, settings, memory, gemini, calls, replies, saves, requests,
+  return { chat, message, guild, settings, memory, gemini, calls, replies, saves, requests, logs,
     setTime: value => { time = value; }, setConfig: value => { config = value; }, deny: () => { visible = false; }, noSend: () => { send = false; } };
 }
 
@@ -41,6 +43,7 @@ test('ordinary scoped turn refreshes access, replies publicly without mentions a
   assert.deepEqual(f.requests[0].history, [{ user: 'เก่า', assistant: 'คำตอบเก่า', at: 1 }]);
   assert.deepEqual(f.saves, [{ scope: { channelId, userId }, pair: { user: 'สวัสดี', assistant: 'สวัสดี 😊' } }]);
   assert.deepEqual(f.replies[0], { content: 'สวัสดี 😊', allowedMentions: { parse: [], repliedUser: false } });
+  assert.deepEqual(f.logs, []);
   assert.ok(f.calls.some(x => x === 'typing'));
   assert.ok(f.calls.filter(x => Array.isArray(x) && x[0] === 'channel').length >= 3);
   for (const x of f.calls.filter(x => Array.isArray(x) && x[0] === 'channel')) assert.deepEqual(x[2], { force: true });
@@ -123,12 +126,15 @@ for (const phase of ['provider', 'memory']) for (const action of ['disable', 're
     if (phase === 'provider') f.gemini.respond = async options => { reached = true; signal = options.signal; return pending.promise; };
     else f.memory.get = async () => { reached = true; return pending.promise; };
     const turn = f.chat.handleMessage(f.message()); await waitFor(() => reached);
-    if (action === 'disable') { f.chat.invalidate({}); f.setConfig({ enabled: false, channelIds: [channelId] }); }
-    if (action === 'remove') { f.chat.invalidate({ channelId }); f.setConfig({ enabled: true, channelIds: [otherChannel] }); }
-    if (action === 'forget') f.chat.invalidate({ channelId, userId });
+    if (action === 'disable') { f.chat.invalidate({}, { reason: 'disabled' }); f.setConfig({ enabled: false, channelIds: [channelId] }); }
+    if (action === 'remove') { f.chat.invalidate({ channelId }, { reason: 'channel_removed' }); f.setConfig({ enabled: true, channelIds: [otherChannel] }); }
+    if (action === 'forget') f.chat.invalidate({ channelId, userId }, { reason: 'forgotten' });
     await turn; if (signal) assert.equal(signal.aborted, true);
     pending.resolve(phase === 'provider' ? { text: 'late', usedTools: false } : []); await flush();
     assert.deepEqual(f.replies, []); assert.deepEqual(f.saves, []);
+    assert.equal(f.logs.length, 1);
+    assert.equal(f.logs[0].event, 'jiji_turn_cancelled');
+    assert.equal(f.logs[0].reason, action === 'disable' ? 'disabled' : action === 'remove' ? 'channel_removed' : 'forgotten');
     f.setConfig({ enabled: true, channelIds: [channelId] }); f.setTime(15000);
     f.memory.get = async () => []; f.gemini.respond = async () => ({ text: 'new', usedTools: false });
     await f.chat.handleMessage(f.message()); assert.equal(f.replies[0].content, 'new');
@@ -161,12 +167,16 @@ test('provider aborts at 29 seconds to reserve safe error delivery within hard 3
   f.gemini.respond = async options => { signal = options.signal; return new Promise(() => {}); };
   const turn = f.chat.handleMessage(f.message()); await waitFor(() => signal); t.mock.timers.tick(29000); await turn;
   assert.equal(signal.aborted, true); assert.equal(f.replies[0].content, tired); assert.deepEqual(f.saves, []);
+  assert.equal(f.logs.length, 1); assert.equal(f.logs[0].reason, 'provider_timeout');
+  assert.equal(f.logs[0].stage, 'gemini'); assert.equal(f.logs[0].event, 'jiji_turn_failed');
 });
 test('hard deadline begins before permission fetch and ignores late uncancellable work', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] }); const f = fixture(), pending = deferred();
   f.guild.members.fetch = async () => pending.promise; const turn = f.chat.handleMessage(f.message()); await flush();
   t.mock.timers.tick(30000); await turn; pending.resolve({ id: userId }); await flush();
   assert.deepEqual(f.replies, []); assert.deepEqual(f.requests, []); assert.deepEqual(f.saves, []);
+  assert.equal(f.logs.length, 1); assert.equal(f.logs[0].reason, 'turn_timeout');
+  assert.equal(f.logs[0].stage, 'access'); assert.equal(f.logs[0].event, 'jiji_turn_failed');
 });
 test('failure delivery itself is canceled at total deadline and by forget', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
@@ -235,4 +245,102 @@ test('serialized append guard rejects elapsed deadline even before delayed timer
   };
   await f.chat.handleMessage(f.message());
   assert.equal(f.replies.length, 1); assert.equal(guarded, false); assert.deepEqual(f.saves, []);
+});
+
+
+test('tired reply logs safe provider metadata and releases the user lock', async () => {
+  const f = fixture();
+  f.gemini.respond = async () => { throw Object.assign(new Error('PRIVATE_PROVIDER_BODY'), {
+    category: 'http', status: 429, diagnostic: { stage: 'google_search', reason: 'http', status: 429 },
+  }); };
+  await f.chat.handleMessage(f.message());
+  assert.equal(f.replies[0].content, tired);
+  assert.deepEqual(f.saves, []);
+  assert.equal(f.logs.length, 1);
+  assert.deepEqual(f.logs[0], {
+    event: 'jiji_turn_failed', traceId, stage: 'google_search', category: 'http', reason: 'http',
+    status: 429, durationMs: 0, requestCount: 0, toolCount: 0,
+  });
+  assert.equal(JSON.stringify(f.logs).includes('PRIVATE_PROVIDER_BODY'), false);
+  f.setTime(15000);
+  f.gemini.respond = async () => ({ text: 'กลับมาแล้ว', usedTools: false });
+  await f.chat.handleMessage(f.message());
+  assert.equal(f.replies.at(-1).content, 'กลับมาแล้ว');
+});
+
+test('silent operational failures are logged while denied access remains silent', async () => {
+  const access = fixture();
+  access.guild.channels.fetch = async () => { throw new Error('PRIVATE_DISCORD_ERROR'); };
+  await access.chat.handleMessage(access.message());
+  assert.deepEqual(access.replies, []);
+  assert.equal(access.logs.length, 1);
+  assert.equal(access.logs[0].category, 'access_unavailable');
+  assert.equal(access.logs[0].stage, 'access');
+
+  const memory = fixture();
+  memory.memory.get = async () => { throw new Error('PRIVATE_STORAGE_ERROR'); };
+  await memory.chat.handleMessage(memory.message());
+  assert.match(memory.replies[0].content, /อ่านหรือบันทึกความจำไม่สำเร็จ/);
+  assert.equal(memory.logs.length, 1);
+  assert.equal(memory.logs[0].category, 'memory_failed');
+  assert.equal(memory.logs[0].stage, 'memory_read');
+  assert.equal(JSON.stringify([...access.logs, ...memory.logs]).includes('PRIVATE_'), false);
+
+  const denied = fixture(); denied.deny();
+  await denied.chat.handleMessage(denied.message());
+  assert.deepEqual(denied.logs, []);
+});
+
+test('hostile provider error getters are never read and still get the safe fallback', async () => {
+  const f = fixture(); let getterCalls = 0;
+  const error = Object.defineProperty(new Error('PRIVATE_PROVIDER_SECRET'), 'category', {
+    get() { getterCalls++; throw new Error('getter must not run'); },
+  });
+  f.gemini.respond = async () => { throw error; };
+  await f.chat.handleMessage(f.message());
+  assert.equal(getterCalls, 0);
+  assert.equal(f.replies[0].content, tired);
+  assert.equal(f.logs[0].category, 'unknown');
+  assert.equal(JSON.stringify(f.logs).includes('PRIVATE_PROVIDER_SECRET'), false);
+});
+
+test('a throwing diagnostic sink preserves replies and lock release', async () => {
+  let sinkCalls = 0;
+  const f = fixture({ diagnostics: { record() { sinkCalls++; throw new Error('sink'); } } });
+  f.gemini.respond = async () => { throw Object.assign(new Error('private'), { category: 'network' }); };
+  await f.chat.handleMessage(f.message());
+  assert.equal(f.replies[0].content, tired);
+  assert.deepEqual(f.saves, []);
+  assert.equal(sinkCalls, 1);
+  f.setTime(15000);
+  f.gemini.respond = async () => ({ text: 'ยังทำงานได้', usedTools: false });
+  await f.chat.handleMessage(f.message());
+  assert.equal(f.replies.at(-1).content, 'ยังทำงานได้');
+});
+
+test('failed fallback replies add one safe event with the same trace ID', async () => {
+  const f = fixture();
+  f.gemini.respond = async () => { throw Object.assign(new Error('secret'), {
+    category: 'http', status: 429, diagnostic: { stage: 'gemini', reason: 'http', status: 429 },
+  }); };
+  await f.chat.handleMessage(f.message({ async reply(payload) {
+    if (payload.content === tired) throw new Error('PRIVATE_DISCORD_ERROR');
+    f.replies.push(payload);
+  } }));
+  assert.equal(f.logs.length, 2);
+  assert.equal(f.logs[0].category, 'http');
+  assert.equal(f.logs[0].stage, 'gemini');
+  assert.equal(f.logs[1].category, 'discord_send_failed');
+  assert.equal(f.logs[1].stage, 'discord_send');
+  assert.equal(f.logs[0].traceId, f.logs[1].traceId);
+
+  const access = fixture();
+  access.gemini.respond = async () => {
+    access.guild.channels.fetch = async () => { throw new Error('private access'); };
+    throw Object.assign(new Error('provider'), { category: 'network' });
+  };
+  await access.chat.handleMessage(access.message());
+  assert.equal(access.logs.length, 2);
+  assert.equal(access.logs[1].category, 'access_unavailable');
+  assert.equal(access.logs[1].stage, 'access');
 });
