@@ -245,6 +245,10 @@ npm start
 
 รูปแบบ request/response อ้างอิง [Gemini generateContent REST](https://ai.google.dev/api/generate-content) และ [function calling](https://ai.google.dev/gemini-api/docs/function-calling): ใช้ `parametersJsonSchema` สำหรับ schema กลาง และคง model parts รวม thought signatures เมื่อส่งผลเครื่องมือกลับ ไม่แสดง thought text เป็นคำตอบ
 
+### การตรวจสอบข้อผิดพลาดจีจี้
+
+`src/jiji/jiji-diagnostics.js` กำหนดรูปแบบ JSON line และ allowlist สำหรับข้อมูลวินิจฉัย โดยยังไม่เชื่อมกับ runtime ในขั้นนี้ จึงยังไม่มี per-turn diagnostic log ให้เก็บ สเปกและข้อจำกัดด้านข้อมูลอยู่ใน [Jiji error logging design](docs/superpowers/specs/2026-10-11-jiji-error-logging-design.md); วิธีเปิดใช้และคำแนะนำสำหรับผู้ดูแลจะเพิ่มเมื่อ runtime เชื่อม logger แล้ว
+
 ### การเรียกและวงจรสนทนาจีจี้
 
 `src/jiji/jiji-trigger.js` แยกข้อความเรียก และ `src/jiji/jiji-chat.js` จัดการสิทธิ์ การยกเลิก เครื่องมือ และความจำ รับข้อความผ่าน runtime ที่เชื่อมใน `src/index.js` ต้องเปิดบอตค้างไว้ ไม่มีการนำเข้าบทสนทนาย้อนหลังจาก Discord
