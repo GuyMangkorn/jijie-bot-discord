@@ -10,7 +10,7 @@ const localError = (category, status, diagnostic) => Object.assign(new Error(cat
 });
 const object = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const validText = (value) => typeof value === 'string' && value.trim().length > 0 && value.length <= 2000;
-const toolErrors = new Set(['invalid_tool_call', 'access_denied', 'cancelled', 'tool_failed', 'member_fetch_failed', 'departure_read_failed', 'search_failed']);
+const toolErrors = new Set(['invalid_tool_call', 'access_denied', 'access_unavailable', 'cancelled', 'tool_failed', 'member_fetch_failed', 'departure_read_failed', 'search_failed']);
 
 function checkCancellation(signal, stage = 'gemini') {
   if (signal?.aborted) throw localError('cancelled', undefined, { stage, reason: 'cancelled' });
@@ -145,7 +145,7 @@ export function createGeminiClient({ apiKey, model = 'gemini-2.5-flash', fetchIm
               throw localError('tool_failed', undefined, { stage: toolStage, reason: 'tool_failed' });
             }
             const responseResult = ok === true ? { ok: true, data: dataValue } : { ok: false, error };
-            if (ok === false && ['member_fetch_failed', 'departure_read_failed', 'cancelled', 'access_denied', 'search_failed'].includes(error)) {
+            if (ok === false && ['member_fetch_failed', 'departure_read_failed', 'cancelled', 'access_denied', 'access_unavailable', 'search_failed'].includes(error)) {
               const safe = readJijiDiagnostic({ category: error, diagnostic: ownValue(result, 'diagnostic') });
               const stage = safe.stage && safe.stage !== 'unknown' ? safe.stage : toolStage;
               const reason = safe.reason && safe.reason !== 'unknown' ? safe.reason : safe.category;

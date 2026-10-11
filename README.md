@@ -273,7 +273,7 @@ npm start
 
 ความล้มเหลวที่เกิดจากผู้ดูแลล้างความจำ ลบห้อง ปิดจีจี้ หรือปิดโปรเซสจะใช้ `event: "jiji_turn_cancelled"` พร้อมเหตุผล เช่น `forgotten`, `channel_removed`, `disabled` หรือ `shutdown`; timeout จะใช้เหตุผล `provider_timeout` หรือ `turn_timeout` ตามขอบเขตที่หมดเวลา หากงานหมดเวลาเฉพาะ provider จีจี้ยังพยายามส่งข้อความเหนื่อยเดิมภายใน deadline รวม ส่วนการยกเลิกจากผู้ดูแลจะไม่ส่งคำตอบล่าช้า การปฏิเสธสิทธิ์ตามปกติและการทักทายไม่สร้าง log
 
-Log มีเฉพาะชื่อ event, เวลา, trace ID, stage, category, reason, HTTP status และตัวนับที่จำกัดค่า ไม่เก็บชื่อหรือ ID ของ Discord, ข้อความ/ประวัติสนทนา, prompt, คำตอบ, คำค้น/URL, ข้อมูลเครื่องมือ, provider body, error message/stack, key หรือ headers การเก็บไฟล์และการหมุน/ลบ log เป็นหน้าที่ผู้ดูแล แอปไม่สร้างไฟล์ log ใน `data/` และไม่จัดการ retention ให้
+Log มีเฉพาะชื่อ event, เวลา, trace ID, stage, category, reason, HTTP status และตัวนับที่จำกัดค่า ไม่เก็บชื่อหรือ ID ของ Discord, ข้อความ/ประวัติสนทนา, prompt, คำตอบ, คำค้น/URL, ข้อมูลเครื่องมือ, provider body, error message/stack, key หรือ headers หาก Discord ขัดข้องระหว่างตรวจสิทธิ์ก่อนเรียกเครื่องมือ ผู้ใช้ยังไม่ได้รับข้อความตอบ แต่จะได้ diagnostic `access_unavailable`; การปฏิเสธสิทธิ์ปกติยังไม่สร้าง log การเก็บไฟล์และการหมุน/ลบ log เป็นหน้าที่ผู้ดูแล แอปไม่สร้างไฟล์ log ใน `data/` และไม่จัดการ retention ให้
 
 บนเครื่องที่ต้องการเก็บ log ให้รัน:
 

@@ -48,6 +48,17 @@ test('wrong guild and denied or failed access block all three tools', async () =
   }
 });
 
+test('access refresh outages retain a safe operational error for chat diagnostics', async () => {
+  const { tools } = fixture({ checkAccess: async () => {
+    throw Object.assign(new Error('PRIVATE_DISCORD_FAILURE'), {
+      category: 'access_unavailable', diagnostic: { stage: 'access', reason: 'access_unavailable' },
+    });
+  } });
+  assert.deepEqual(await tools.execute({ name: 'activity_help', args: {} }), {
+    ok: false, error: 'access_unavailable', diagnostic: { stage: 'access', reason: 'access_unavailable' },
+  });
+});
+
 test('access is checked anew for every call', async () => {
   let allowed = true;
   const { tools, reads } = fixture({ checkAccess: async () => allowed });

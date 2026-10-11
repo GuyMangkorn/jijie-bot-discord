@@ -18,11 +18,11 @@ async function fixture(t) {
   const directory = await mkdtemp(join(tmpdir(), 'jiji-integration-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const settingsPath = join(directory, 'settings.json'), memoryPath = join(directory, 'memory.json');
-  const replies = [], requests = [], callbacks = new Map(); let at = 1_000_000, fetchBehavior = () => response([{ text: 'สวัสดี 😊' }]);
+  const replies = [], requests = [], callbacks = new Map(); let at = 1_000_000, fetchBehavior = () => response([{ text: 'สวัสดี 😊' }]), failChannelFetch = false;
   const member = { id: userId, user: { id: userId, bot: false, username: 'member' }, joinedTimestamp: 900_000, permissions: { has: bit => bit === P.ManageGuild } };
   const channel = { id: channelId, name: 'chat', guildId, type: ChannelType.GuildText,
     permissionsFor: () => ({ has: () => true }), async sendTyping() {} };
-  const guild = { id: guildId, channels: { async fetch() { return channel; } }, roles: { async fetch() {} },
+  const guild = { id: guildId, channels: { async fetch() { if (failChannelFetch) throw new Error('PRIVATE_DISCORD_FAILURE'); return channel; } }, roles: { async fetch() {} },
     members: { async fetch(options) { return options ? member : new Map([[userId, member]]); }, async fetchMe() { return { id: botId }; } } };
   const client = { user: { id: botId }, on(event, callback) { callbacks.set(event, callback); } };
   const options = { client, guildId, geminiApiKey: 'offline-fixture', departureLog: {}, settingsPath, memoryPath,
@@ -37,7 +37,7 @@ async function fixture(t) {
     async deferReply() {}, async editReply(payload) { replies.push(payload); } }; }
   async function enable(runtime) { await runtime.handleInteraction(interaction('เพิ่ม')); await runtime.handleInteraction(interaction('เปิด')); }
   return { open, enable, message, interaction, replies, requests, client, callbacks, settingsPath, memoryPath,
-    advance(ms = 5000) { at += ms; }, setFetch(fn) { fetchBehavior = fn; } };
+    advance(ms = 5000) { at += ms; }, setFetch(fn) { fetchBehavior = fn; }, failChannelFetch() { failChannelFetch = true; } };
 }
 const json = async path => JSON.parse(await readFile(path, 'utf8'));
 
@@ -311,4 +311,28 @@ test('runtime shutdown logs once and ignores late provider settlement', async t 
   assert.equal(logs.length, 1);
   assert.equal(f.replies.length, before);
   await assert.rejects(readFile(f.memoryPath), { code: 'ENOENT' });
+});
+
+test('runtime logs access refresh outage during tool execution without replying', async t => {
+  const f = await fixture(t), logs = [];
+  const runtime = await f.open({
+    diagnostics: createJijiDiagnostics({ write: line => logs.push(JSON.parse(line)), now: () => 1_000_000 }),
+    traceId: () => '00000000-0000-4000-8000-000000000005',
+  });
+  await f.enable(runtime);
+  const beforeReplies = f.replies.length;
+  f.setFetch(() => {
+    f.failChannelFetch();
+    return response([{ functionCall: { name: 'activity_help', args: {} } }]);
+  });
+  await runtime.handleMessage(f.message());
+  assert.equal(f.replies.length, beforeReplies);
+  assert.equal(logs.length, 1);
+  assert.equal(logs[0].event, 'jiji_turn_failed');
+  assert.equal(logs[0].category, 'access_unavailable');
+  assert.equal(logs[0].stage, 'access');
+  assert.equal(logs[0].reason, 'access_unavailable');
+  assert.equal(logs[0].requestCount, 1);
+  assert.equal(logs[0].toolCount, 1);
+  assert.equal(JSON.stringify(logs).includes('PRIVATE_DISCORD_FAILURE'), false);
 });

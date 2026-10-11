@@ -30,7 +30,7 @@ export function validJijiToolCall(call) {
 }
 
 // Context is supplied by the runtime, never by model-selected arguments.
-// ToolResult: {ok:true,data:object} | {ok:false,error:stableLocalCategory}.
+// ToolResult: {ok:true,data:object} | {ok:false,error:stableLocalCategory,diagnostic?:safeLocalMetadata}.
 export function createJijiTools({ guild, guildId, userId, channelId, departureLog, checkAccess }) {
   const handlers = new Map([
     ['get_latest_members', { error: 'member_fetch_failed', run: async () => ({ members: await fetchLatestMembers(guild) }) }],
@@ -55,8 +55,12 @@ export function createJijiTools({ guild, guildId, userId, channelId, departureLo
       }
       try {
         if (await checkAccess() !== true) return failed('access_denied');
-      } catch {
-        return failed(signal?.aborted ? 'cancelled' : 'access_denied');
+      } catch (error) {
+        if (signal?.aborted) return failed('cancelled');
+        if (readJijiDiagnostic(error).category === 'access_unavailable') {
+          return failed('access_unavailable', { stage: 'access', reason: 'access_unavailable' });
+        }
+        return failed('access_denied');
       }
       if (signal?.aborted) return failed('cancelled');
       if (call.name === 'search_google') {

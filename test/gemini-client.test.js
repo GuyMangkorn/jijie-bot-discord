@@ -210,6 +210,17 @@ test('tool failure categories are preserved locally for operational Thai errors'
   await assert.rejects(client.respond({ text: 'hi', tools: { execute: async () => ({ ok: false, error: 'member_fetch_failed' }) } }), { category: 'member_fetch_failed' });
   assert.equal(requests.length, 1);
 });
+test('access-unavailable tool failures propagate safe diagnostics locally', async () => {
+  const { client, requests } = fixture([jsonResponse(reply([call('activity_help')]))]);
+  await assert.rejects(client.respond({ text: 'hi', tools: { execute: async () => ({
+    ok: false, error: 'access_unavailable', diagnostic: { stage: 'access', reason: 'access_unavailable' },
+  }) } }), error => {
+    assert.equal(error.category, 'access_unavailable');
+    assert.deepEqual(error.diagnostic, { stage: 'access', reason: 'access_unavailable' });
+    return true;
+  });
+  assert.equal(requests.length, 1);
+});
 test('abort before fetch, during fetch, body read or tool execution discards late results', async () => {
   const controller = new AbortController();
   controller.abort(Error(secret));
